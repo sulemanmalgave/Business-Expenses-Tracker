@@ -40,6 +40,10 @@ import { SettingsView } from './components/SettingsView';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SubscriptionView } from './components/SubscriptionView';
 import { UpgradeModal } from './components/UpgradeModal';
+import { PrivacyPolicyView } from './components/PrivacyPolicyView';
+import { TermsOfServiceView } from './components/TermsOfServiceView';
+import { AboutView } from './components/AboutView';
+import { HelpSupportView } from './components/HelpSupportView';
 
 export default function App() {
   // Navigation active tab State
@@ -468,10 +472,16 @@ export default function App() {
             </span>
           </div>
           <span className="text-[9.5px] text-slate-500">Owner: {profile.ownerName}</span>
-          <div className="flex items-center space-x-1 font-mono text-[9px] text-emerald-500 font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <span>Secure Database Synced</span>
-          </div>
+          {isLifetime ? (
+            <div className="flex items-center space-x-1 font-mono text-[9px] text-emerald-400 font-bold">
+              <span>💎 Lifetime Plan</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1 font-mono text-[9px] text-emerald-500 font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span>Secure Database Synced</span>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -589,7 +599,7 @@ export default function App() {
                     {profile.businessName}
                   </span>
                   <span className="text-[9px] text-slate-400 block font-mono">
-                    {profile.ownerName.split(' ')[0]}
+                    {profile.ownerName.split(' ')[0]} {isLifetime && '💎'}
                   </span>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700">
@@ -602,25 +612,40 @@ export default function App() {
                   <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
                     <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{profile.businessName}</p>
                     <p className="text-[10px] text-slate-500 truncate">{profile.ownerName}</p>
-                    <span className="inline-block mt-1 text-[9px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">
-                      {isPremium ? (profile.subscriptionPlan === 'pro_yearly' ? 'Pro Yearly' : 'Pro Monthly') : 'Free Plan'}
+                    <span className={`inline-block mt-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                      isLifetime 
+                        ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30' 
+                        : isPremium 
+                        ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' 
+                        : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800'
+                    }`}>
+                      {isLifetime ? '💎 Lifetime' : isPremium ? (profile.subscriptionPlan === 'pro_yearly' ? 'Pro Yearly' : 'Pro Monthly') : 'Free Plan'}
                     </span>
                   </div>
                   {[
                     { label: 'Profile', id: 'settings' },
-                    { label: 'Workspace Settings', id: 'settings' },
                     { label: 'Subscription & Billing', id: 'subscription' },
-                    { label: 'Restore Purchase', id: 'backup' },
-                    { label: 'Help & Support', id: 'settings' },
+                    { label: 'Restore Purchases', id: 'backup' },
+                    { label: 'Settings', id: 'settings' },
+                    { label: 'Help & Support', id: 'help' },
+                    { label: 'Privacy Policy', id: 'privacy' },
+                    { label: 'Terms of Service', id: 'terms' },
+                    { label: 'About App', id: 'about' },
                     { label: 'Sign Out', id: 'dashboard' },
                   ].map((item) => (
                     <button
                       key={item.label}
                       onClick={() => {
-                        setActiveTab(item.id);
+                        if (item.label === 'Sign Out') {
+                          if (confirm('Are you sure you want to sign out? This safely resets session parameters.')) {
+                            handleResetApplication();
+                          }
+                        } else {
+                          setActiveTab(item.id);
+                        }
                         setProfileMenuOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="w-full text-left px-4 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 pointer-events-auto transition-colors"
                     >
                       {item.label}
                     </button>
@@ -765,10 +790,45 @@ export default function App() {
                 <SubscriptionView
                   profile={profile}
                   transactionsCount={transactions.length}
+                  onUpdateProfile={handleUpdateProfile}
                 />
+              )}
+
+              {activeTab === 'privacy' && (
+                <PrivacyPolicyView onBack={() => setActiveTab('settings')} />
+              )}
+
+              {activeTab === 'terms' && (
+                <TermsOfServiceView onBack={() => setActiveTab('settings')} />
+              )}
+
+              {activeTab === 'about' && (
+                <AboutView onBack={() => setActiveTab('settings')} onNavigate={setActiveTab} />
+              )}
+
+              {activeTab === 'help' && (
+                <HelpSupportView onBack={() => setActiveTab('settings')} />
               )}
             </motion.div>
           </AnimatePresence>
+
+          {/* Low profile professional legal disclosures and help footer */}
+          <footer className="mt-12 pt-6 border-t border-slate-205 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 gap-4" id="pwa-store-footer">
+            <div className="flex items-center gap-1">
+              <span className="font-bold text-slate-500 dark:text-slate-400">Business Expense Tracker</span>
+              <span>• Version 1.1.0 (Store Sandbox)</span>
+            </div>
+            
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+              <button onClick={() => setActiveTab('help')} className="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pointer-events-auto">Help & Support</button>
+              <span>•</span>
+              <button onClick={() => setActiveTab('privacy')} className="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pointer-events-auto">Privacy Policy</button>
+              <span>•</span>
+              <button onClick={() => setActiveTab('terms')} className="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pointer-events-auto">Terms of Service</button>
+              <span>•</span>
+              <button onClick={() => setActiveTab('about')} className="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors pointer-events-auto">About App</button>
+            </div>
+          </footer>
         </main>
       </div>
 
