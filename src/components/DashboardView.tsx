@@ -3,434 +3,615 @@ import { motion } from 'motion/react';
 import { 
   ArrowUpRight, 
   ArrowDownRight, 
-  DollarSign, 
   TrendingUp, 
   TrendingDown, 
   Plus, 
   Briefcase, 
-  Tag, 
   Calendar, 
-  Search,
+  CheckCircle2, 
+  FileText, 
+  Upload, 
+  Clock, 
+  AlertCircle, 
   Sparkles,
-  Info
+  ArrowRight
 } from 'lucide-react';
-import { Transaction, UserProfile } from '../types';
+import { Transaction, UserProfile, RecurringBill } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
+import { 
+  calculateFinancials, 
+  calculateMonthOverMonth, 
+  getDateRangeForPeriod, 
+  filterTransactions 
+} from '../utils/financeCalculations';
+import { evaluateRecurringBills } from '../utils/recurringService';
 import { VisualChart } from './VisualChart';
 
 interface DashboardViewProps {
   transactions: Transaction[];
+  recurringBills: RecurringBill[];
   profile: UserProfile;
   onNavigate: (tab: string) => void;
   onQuickAdd: (type: 'income' | 'expense') => void;
+  onOpenBatchReceipts: () => void;
+  onOpenRecurringBills: () => void;
+  onMarkBillPaid: (bill: RecurringBill) => void;
+  onOpenInvoices?: () => void;
+  onResetToDemo?: () => void;
+  onClearAll?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   transactions,
+  recurringBills,
   profile,
   onNavigate,
   onQuickAdd,
+  onOpenBatchReceipts,
+  onOpenRecurringBills,
+  onMarkBillPaid,
+  onOpenInvoices,
+  onResetToDemo,
+  onClearAll,
 }) => {
-  const [insightClosed, setInsightClosed] = useState(false);
+  const [chartMode, setChartMode] = useState<'incomeVsExpense' | 'categoryBreakdown'>('incomeVsExpense');
+  const [selectedPeriod, setSelectedPeriod] = useState<
+    'this_month' | 'last_month' | 'financial_year' | 'calendar_year' | 'all' | 'custom'
+  >('this_month');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
 
-  // Financial calculations
-  const totalIncome = transactions
-    .filter((t) => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
+  // Active period calculation
+  const periodRange = getDateRangeForPeriod(
+    selectedPeriod,
+    new Date(),
+    profile.financialYearStart || 'April'
+  );
 
-  const totalExpenses = transactions
-    .filter((t) => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const activeStartDate = selectedPeriod === 'custom' ? customStartDate : periodRange.startDate;
+  const activeEndDate = selectedPeriod === 'custom' ? customEndDate : periodRange.endDate;
 
-  const netProfit = totalIncome - totalExpenses;
-  const profitMargin = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0;
+  // Filter transactions according to selected period
+  const filteredTransactions = filterTransactions(transactions, {
+    startDate: activeStartDate,
+    endDate: activeEndDate,
+  });
 
-  // Recent transactions (limit to 5)
+  // Use unified calculation engine on filtered dataset
+  const financials = calculateFinancials(filteredTransactions, profile.taxRate);
+  const mom = calculateMonthOverMonth(transactions);
+
+  // Evaluate upcoming bills
+  const billStatus = evaluateRecurringBills(recurringBills);
+  const nextUpcomingBills = [...billStatus.overdue, ...billStatus.dueSoon].slice(0, 3);
+
+  // Recent transactions (limit 5)
   const recentTransactions = [...transactions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5);
 
-  // Monthly summary cards (Current Month vs Previous Month calculations)
-  const now = new Date();
-  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
-
-  const currentMonthTxs = transactions.filter((t) => t.date.startsWith(currentMonthStr));
-  const prevMonthTxs = transactions.filter((t) => t.date.startsWith(prevMonthStr));
-
-  const curMonthInc = currentMonthTxs.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const curMonthExp = currentMonthTxs.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-  
-  const prevMonthInc = prevMonthTxs.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const prevMonthExp = prevMonthTxs.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-
-  // Growth percentages
-  const calculateChange = (cur: number, prev: number) => {
-    if (prev === 0) return cur > 0 ? 100 : 0;
-    return ((cur - prev) / prev) * 100;
-  };
-
-  const incChange = calculateChange(curMonthInc, prevMonthInc);
-  const expChange = calculateChange(curMonthExp, prevMonthExp);
-
-  // Smart quick insight text
-  const getSmartInsight = () => {
-    if (profitMargin > 25) {
-      return {
-        title: 'Strong Financial Health',
-        desc: `High net margin of ${profitMargin.toFixed(0)}%. Your revenue continues to outpace expenses cleanly. Perfect runway to invest in expansion, SaaS tools, or office infrastructure.`,
-        type: 'success',
-      };
-    } else if (netProfit < 0) {
-      return {
-        title: 'Net Cash Burning Out',
-        desc: 'Alert: Your current expenses exceed your total incoming receipts. We recommend cutting Software subscriptions or reviewing marketing campaigns in the Analytics menu.',
-        type: 'danger',
-      };
-    } else {
-      return {
-        title: 'Moderate Margins',
-        desc: `Net margin is stable at ${profitMargin.toFixed(0)}%. Consider automating recurring invoices for key services to stabilize weekly client inputs.`,
-        type: 'warning',
-      };
-    }
-  };
-
-  const insight = getSmartInsight();
+  const hasTransactions = transactions.length > 0;
+  const isDemoActive = transactions.length > 0 && transactions.some((t) => t.id.startsWith('tx_starter_'));
 
   return (
     <div className="space-y-6">
-      {/* Top Welcome Title Grid */}
+      
+      {/* Demo Dataset Active Notification Banner */}
+      {isDemoActive && (
+        <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+            <span>
+              <strong>Sample Demo Dataset Active:</strong> You are viewing realistic sample transactions. Your financial metrics reflect preview data.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onClearAll}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors pointer-events-auto"
+            >
+              Clear Demo & Start Fresh
+            </button>
+            <button
+              onClick={() => onNavigate('backup')}
+              className="px-2.5 py-1 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-lg text-xs hover:bg-amber-500/10 transition-colors pointer-events-auto"
+            >
+              Export / Backup
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Top Welcome Title & Primary Quick Action Bar */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
             Overview Hub
           </span>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 font-sans tracking-tight">
-            Welcome Back, {profile.ownerName || 'sarah'}
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+            Welcome Back, {profile.ownerName || 'Finance Manager'}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Real-time financial status of <span className="font-semibold">{profile.businessName || 'Apex Consulting'}</span>.
+            Real-time status for <span className="font-semibold">{profile.businessName || 'Business Workspace'}</span>.
           </p>
         </div>
 
-        {/* Quick action controls */}
-        <div className="flex items-center space-x-3 shrink-0">
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             onClick={() => onQuickAdd('income')}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-emerald-600/10 transition-colors pointer-events-auto"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors pointer-events-auto"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Income</span>
           </button>
+
           <button
             onClick={() => onQuickAdd('expense')}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-rose-600/10 transition-colors pointer-events-auto"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors pointer-events-auto"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Expense</span>
           </button>
+
+          <button
+            onClick={onOpenBatchReceipts}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors pointer-events-auto"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Batch Receipts</span>
+          </button>
+
+          {onOpenInvoices && (
+            <button
+              onClick={onOpenInvoices}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors pointer-events-auto"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Invoices</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => onNavigate('reports')}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors pointer-events-auto"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>View Reports</span>
+          </button>
         </div>
       </div>
 
-      {/* Main KPI Card Row */}
+      {/* Period Filter Bar */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+          <Calendar className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
+          <span className="text-xs font-bold text-slate-500 shrink-0">Period:</span>
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-medium shrink-0">
+            <button
+              onClick={() => setSelectedPeriod('this_month')}
+              className={`px-3 py-1 rounded-lg transition-colors ${
+                selectedPeriod === 'this_month'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              This Month
+            </button>
+            <button
+              onClick={() => setSelectedPeriod('last_month')}
+              className={`px-3 py-1 rounded-lg transition-colors ${
+                selectedPeriod === 'last_month'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              Last Month
+            </button>
+            <button
+              onClick={() => setSelectedPeriod('financial_year')}
+              className={`px-3 py-1 rounded-lg transition-colors ${
+                selectedPeriod === 'financial_year'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {profile.financialYearStart === 'January' ? 'Calendar Year' : 'Financial Year (FY)'}
+            </button>
+            <button
+              onClick={() => setSelectedPeriod('all')}
+              className={`px-3 py-1 rounded-lg transition-colors ${
+                selectedPeriod === 'all'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              All Time
+            </button>
+            <button
+              onClick={() => setSelectedPeriod('custom')}
+              className={`px-3 py-1 rounded-lg transition-colors ${
+                selectedPeriod === 'custom'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              Custom Range
+            </button>
+          </div>
+        </div>
+
+        {/* Range Label / Custom Date Inputs */}
+        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {selectedPeriod === 'custom' ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none text-slate-800 dark:text-slate-200"
+              />
+              <span>to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none text-slate-800 dark:text-slate-200"
+              />
+            </div>
+          ) : (
+            <span className="font-medium bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800 text-[11px]">
+              Active: <strong className="text-slate-800 dark:text-slate-100">{periodRange.label}</strong>
+              {activeStartDate && activeEndDate && (
+                <span className="ml-1 text-slate-400">({activeStartDate} to {activeEndDate})</span>
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main KPI Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Card 1: Income */}
+        
+        {/* Card 1: Total Income */}
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm relative overflow-hidden"
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm relative overflow-hidden"
         >
           <div className="absolute right-4 top-4 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl text-emerald-600 dark:text-emerald-400 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-            Total Revenue
+            Total Income
           </span>
           <span className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-100 mt-1 block">
-            {formatCurrency(totalIncome, profile.currency)}
+            {formatCurrency(financials.totalIncome, profile.currency, profile.numberFormatPreference)}
           </span>
           <div className="mt-4 flex items-center space-x-2 text-xs">
-            <span className={`font-mono font-semibold ${incChange >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-              {incChange >= 0 ? '+' : ''}
-              {incChange.toFixed(1)}%
-            </span>
-            <span className="text-slate-400 dark:text-slate-500">from last month</span>
+            {mom.hasComparableHistoricalData && mom.incomeChangePercentage !== null ? (
+              <>
+                <span className={`font-mono font-semibold ${mom.incomeChangePercentage >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  {mom.incomeChangePercentage >= 0 ? '+' : ''}
+                  {mom.incomeChangePercentage.toFixed(1)}%
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">vs last month</span>
+              </>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">
+                {hasTransactions ? 'Prior month has no comparison records' : 'No records logged'}
+              </span>
+            )}
           </div>
         </motion.div>
 
-        {/* Card 2: Expenses */}
+        {/* Card 2: Total Expenses */}
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.05 }}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm relative overflow-hidden"
+          transition={{ delay: 0.05 }}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm relative overflow-hidden"
         >
           <div className="absolute right-4 top-4 bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl text-rose-600 dark:text-rose-400 shrink-0">
             <TrendingDown className="w-5 h-5" />
           </div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-            Total Expenditures
+            Total Expenses
           </span>
           <span className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-100 mt-1 block">
-            {formatCurrency(totalExpenses, profile.currency)}
+            {formatCurrency(financials.totalExpenses, profile.currency, profile.numberFormatPreference)}
           </span>
           <div className="mt-4 flex items-center space-x-2 text-xs">
-            <span className={`font-mono font-semibold ${expChange <= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-              {expChange >= 0 ? '+' : ''}
-              {expChange.toFixed(1)}%
-            </span>
-            <span className="text-slate-400 dark:text-slate-500">from last month</span>
+            {mom.hasComparableHistoricalData && mom.expenseChangePercentage !== null ? (
+              <>
+                <span className={`font-mono font-semibold ${mom.expenseChangePercentage <= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  {mom.expenseChangePercentage >= 0 ? '+' : ''}
+                  {mom.expenseChangePercentage.toFixed(1)}%
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">vs last month</span>
+              </>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">
+                {hasTransactions ? 'Prior month has no comparison records' : 'No records logged'}
+              </span>
+            )}
           </div>
         </motion.div>
 
-        {/* Card 3: Net Income */}
+        {/* Card 3: Net Cash Flow & Net Profit */}
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm relative overflow-hidden"
+          transition={{ delay: 0.1 }}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm relative overflow-hidden"
         >
-          <div className={`absolute right-4 top-4 p-2.5 rounded-xl shrink-0 ${
-            netProfit >= 0 
-              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' 
-              : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
-          }`}>
-            <DollarSign className="w-5 h-5" />
+          <div className="absolute right-4 top-4 bg-blue-50 dark:bg-blue-950/40 p-2.5 rounded-xl text-blue-600 dark:text-blue-400 shrink-0">
+            <TrendingUp className="w-5 h-5" />
           </div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-            Net Profit Margin
+            Net Cash Flow / Profit
           </span>
           <span className={`text-2xl font-bold font-mono mt-1 block ${
-            netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+            financials.netCashFlow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
           }`}>
-            {formatCurrency(netProfit, profile.currency)}
+            {formatCurrency(financials.netCashFlow, profile.currency, profile.numberFormatPreference)}
           </span>
           <div className="mt-4 flex items-center space-x-2 text-xs">
-            <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-600 dark:text-slate-300">
-              {profitMargin.toFixed(1)}% Margin
+            <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] font-bold text-slate-600 dark:text-slate-300">
+              {financials.profitMargin.toFixed(1)}% Profit Margin
             </span>
-            <span className="text-slate-400 dark:text-slate-500">of operations</span>
+            <span className="text-slate-400 dark:text-slate-500">Cash Basis</span>
           </div>
         </motion.div>
+
       </div>
 
-      {/* Interactive Insights Banner */}
-      {!insightClosed && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`p-4 rounded-2xl border flex items-start gap-3.5 relative ${
-            insight.type === 'success'
-              ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300'
-              : insight.type === 'danger'
-              ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/40 text-rose-800 dark:text-rose-300'
-              : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/40 text-amber-800 dark:text-amber-300'
-          }`}
-        >
-          <div className="p-1 px-1 rounded-lg bg-white/80 dark:bg-slate-900 shrink-0 mt-0.5 shadow-sm text-blue-600">
-            <Sparkles className="w-4 h-4" />
+      {/* Meaningful Empty State when Zero Transactions Exist */}
+      {!hasTransactions && (
+        <div className="p-8 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl text-center space-y-4">
+          <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto">
+            <FileText className="w-6 h-6" />
           </div>
-          <div className="text-xs">
-            <h4 className="font-bold mb-0.5 text-[13px]">{insight.title}</h4>
-            <p className="opacity-85 text-slate-600 dark:text-slate-300 leading-relaxed max-w-[90%]">
-              {insight.desc}
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">No Financial Records Logged Yet</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              Get started by recording your first invoice, overhead expense, or import a bank statement CSV to activate live analytics and charts.
             </p>
           </div>
-          <button
-            onClick={() => setInsightClosed(true)}
-            className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold font-sans pointer-events-auto"
-          >
-            Dismiss
-          </button>
-        </motion.div>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => onQuickAdd('income')}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold pointer-events-auto shadow-xs"
+            >
+              + Record First Income
+            </button>
+            <button
+              onClick={() => onQuickAdd('expense')}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold pointer-events-auto shadow-xs"
+            >
+              + Record First Expense
+            </button>
+            <button
+              onClick={onOpenBatchReceipts}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold pointer-events-auto shadow-xs"
+            >
+              Import Receipts
+            </button>
+            {onResetToDemo && (
+              <button
+                onClick={onResetToDemo}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold pointer-events-auto transition-colors"
+              >
+                Load Sample Data (Preview Demo)
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Main Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left: Income vs Expense Trend Chart */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm lg:col-span-7">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                Performance Timeline
-              </h3>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                Compare cash inflows vs expenses over the last 6 months
-              </p>
+      {/* Grid: Charts + Upcoming Recurring Bills */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Left Column: Visual Trends & Category Breakdown */}
+        <div className="lg:col-span-8 space-y-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                  {chartMode === 'incomeVsExpense' ? 'Income vs Expenses Trend' : 'Expense Category Allocation'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {chartMode === 'incomeVsExpense' ? 'Monthly cash flow trajectories' : 'Proportional breakdown by category'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-[11px] font-semibold">
+                  <button
+                    onClick={() => setChartMode('incomeVsExpense')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors ${
+                      chartMode === 'incomeVsExpense'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    Monthly Cash Flow
+                  </button>
+                  <button
+                    onClick={() => setChartMode('categoryBreakdown')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors ${
+                      chartMode === 'categoryBreakdown'
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    Category Donut
+                  </button>
+                </div>
+                <button
+                  onClick={() => onNavigate('analytics')}
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 pointer-events-auto shrink-0 pl-1"
+                >
+                  <span>BI Analytics</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center space-x-3 text-[10px] font-semibold text-slate-500">
-              <span className="flex items-center space-x-1">
-                <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full inline-block" />
-                <span>Revenue</span>
-              </span>
-              <span className="flex items-center space-x-1">
-                <span className="w-2.5 h-2.5 bg-rose-500 rounded-full inline-block" />
-                <span>Expenses</span>
-              </span>
+            
+            <div className="h-64">
+              <VisualChart 
+                transactions={filteredTransactions} 
+                type={chartMode} 
+                currency={profile.currency} 
+                profile={profile} 
+              />
             </div>
           </div>
-          <VisualChart transactions={transactions} type="incomeVsExpense" currency={profile.currency} />
-        </div>
 
-        {/* Right: Dynamic Category Breakdown */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm lg:col-span-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                Operating Cost Breakdown
-              </h3>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                Distribution of expenses across top business categories
-              </p>
-            </div>
-            <button
-              onClick={() => onNavigate('analytics')}
-              className="text-[10px] text-blue-600 hover:underline font-bold"
-            >
-              Details
-            </button>
-          </div>
-          <VisualChart
-            transactions={transactions}
-            type="categoryBreakdown"
-            transactionTypeFilter="expense"
-            currency={profile.currency}
-          />
-        </div>
-      </div>
-
-      {/* Bottom Grid: Recent Ledger Items vs Monthly summary grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Ledger items */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm lg:col-span-8 overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                Recent Bookkeeping Ledger
-              </h3>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                Latest 5 incoming & outgoing ledger rows
-              </p>
-            </div>
-            <button
-              onClick={() => onNavigate('reports')}
-              className="text-xs text-blue-600 hover:underline font-bold"
-            >
-              Full Ledger
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                  <th className="py-2.5">Date</th>
-                  <th className="py-2.5">Description</th>
-                  <th className="py-2.5">Category</th>
-                  <th className="py-2.5 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 text-xs">
-                {recentTransactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                    <td className="py-2.5 text-slate-500 dark:text-slate-400 font-mono whitespace-nowrap">
-                      {tx.date}
-                    </td>
-                    <td className="py-2.5">
-                      <div className="flex items-center space-x-1.5 min-w-0 max-w-[200px] md:max-w-xs">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          tx.type === 'income' ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`} />
-                        <span className="text-slate-700 dark:text-slate-300 font-medium truncate">
-                          {tx.description}
+          {/* Expense Category Breakdown */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+              Expense Allocation Breakdown
+            </h3>
+            
+            {financials.expenseCategories.length === 0 ? (
+              <p className="text-xs text-slate-400 py-4 text-center">No expenses recorded yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {financials.expenseCategories.slice(0, 5).map((cat) => (
+                  <div key={cat.category} className="space-y-1">
+                    <div className="flex justify-between items-baseline text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">{cat.category}</span>
+                      <div className="space-x-2 font-mono">
+                        <span className="text-slate-900 dark:text-white font-bold">
+                          {formatCurrency(cat.amount, profile.currency, profile.numberFormatPreference)}
                         </span>
+                        <span className="text-slate-400 text-[11px]">({cat.percentage.toFixed(1)}%)</span>
                       </div>
-                    </td>
-                    <td className="py-2.5">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-medium text-slate-600 dark:text-slate-400">
-                        {tx.category}
-                      </span>
-                    </td>
-                    <td className={`py-2.5 text-right font-bold font-mono whitespace-nowrap ${
-                      tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'
+                    </div>
+                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-rose-500 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, cat.percentage)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Upcoming Bills & Recent Transactions */}
+        <div className="lg:col-span-4 space-y-6">
+          
+          {/* Upcoming Bills Widget */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-indigo-500" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                  Upcoming Bills
+                </h3>
+              </div>
+              <button
+                onClick={onOpenRecurringBills}
+                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline pointer-events-auto"
+              >
+                Manage All
+              </button>
+            </div>
+
+            {nextUpcomingBills.length === 0 ? (
+              <div className="text-center py-6 space-y-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400">No bills due in next 7 days</p>
+                <button
+                  onClick={onOpenRecurringBills}
+                  className="text-[11px] font-bold text-indigo-600 underline pointer-events-auto"
+                >
+                  Configure recurring bills
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {nextUpcomingBills.map((bill) => {
+                  const isOverdue = bill.nextDueDate < new Date().toISOString().split('T')[0];
+                  return (
+                    <div
+                      key={bill.id}
+                      className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                        isOverdue
+                          ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40'
+                          : 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">{bill.description}</p>
+                        <p className={`text-[10px] font-mono ${isOverdue ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                          Due: {bill.nextDueDate}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          {formatCurrency(bill.amount, profile.currency, profile.numberFormatPreference)}
+                        </span>
+                        <button
+                          onClick={() => onMarkBillPaid(bill)}
+                          title="Confirm and create transaction"
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow-sm pointer-events-auto transition-colors"
+                        >
+                          Pay
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Transactions List */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                Recent Transactions
+              </h3>
+              <button
+                onClick={() => onNavigate('reports')}
+                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline pointer-events-auto"
+              >
+                Full Ledger
+              </button>
+            </div>
+
+            {recentTransactions.length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">No transactions recorded.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {recentTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 text-xs transition-colors">
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${tx.type === 'income' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                      <div className="truncate">
+                        <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{tx.description}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{tx.date} • {tx.category}</p>
+                      </div>
+                    </div>
+                    <span className={`font-mono font-bold shrink-0 ${
+                      tx.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'
                     }`}>
                       {tx.type === 'income' ? '+' : '-'}
-                      {formatCurrency(tx.amount, profile.currency)}
-                    </td>
-                  </tr>
+                      {formatCurrency(tx.amount, profile.currency, profile.numberFormatPreference)}
+                    </span>
+                  </div>
                 ))}
-                {recentTransactions.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-slate-400 dark:text-slate-500">
-                      No business records entered. Click Plus above to register your first client fee or SaaS tool.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
+
         </div>
 
-        {/* Monthly Summary mini matrix */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl shadow-sm lg:col-span-4 flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-              Active Month Status
-            </h3>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4">
-              Real-time summary billing of current month ({currentMonthStr})
-            </p>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Month Income</span>
-                </div>
-                <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-100">
-                  {formatCurrency(curMonthInc, profile.currency)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 rounded-full bg-rose-500" />
-                  <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Month Expenses</span>
-                </div>
-                <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-100">
-                  {formatCurrency(curMonthExp, profile.currency)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 rounded-full bg-blue-600" />
-                  <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Net Month Pool</span>
-                </div>
-                <span className={`text-xs font-mono font-bold ${
-                  (curMonthInc - curMonthExp) >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}>
-                  {formatCurrency(curMonthInc - curMonthExp, profile.currency)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
-            <span className="flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 text-blue-500" />
-              <span>Offline DB active</span>
-            </span>
-            <span className="font-semibold text-blue-650 hover:underline cursor-pointer" onClick={() => onNavigate('backup')}>
-              JSON Saved
-            </span>
-          </div>
-        </div>
       </div>
+
     </div>
   );
 };

@@ -20,9 +20,11 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlanCode, PlanDetails> = {
     periodLabel: 'forever',
     features: [
       'Up to 500 total transactions (income + expenses combined)',
-      'Basic dashboard view',
-      'Basic accounting ledger CSV export',
-      'Manage 1 business profile',
+      'Interactive dashboard & Profit/Loss reports',
+      'Complete accounting ledger CSV & Excel export',
+      'Full JSON backup & restore without paywalls',
+      'Client invoice & estimate builder with print/PDF',
+      'Manage 1 business workspace',
     ],
   },
   pro_monthly: {
@@ -33,14 +35,11 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlanCode, PlanDetails> = {
     periodLabel: 'month',
     features: [
       'Unlimited transaction ledger entries',
-      'Excel-compatible CSV export',
-      'PDF-formatted accounting reports',
-      'Secure receipt image attachments',
-      'Automated recurring revenues',
-      'Automated recurring operating costs',
-      'Multiple business profile toggling',
+      'Multiple independent business profiles',
+      'Batch receipt attachment ingest',
+      'Automated recurring bills & obligations',
       'Advanced Business Intelligence analytics',
-      'Backup & Restore system ledger',
+      'Priority software updates',
     ],
   },
   pro_yearly: {
@@ -161,21 +160,23 @@ export function isFeatureAllowed(
     };
   }
 
+  // Core user ownership features: CSV/Excel export, PDF reports, and JSON backup are always allowed
+  if (feature === 'excel_export' || feature === 'backup_restore' || feature === 'pdf_reports') {
+    return { allowed: true };
+  }
+
   // All other listed features require an active license tier
   if (!hasPremium) {
     const labels: Record<string, string> = {
-      excel_export: 'Excel Spreadsheet export is a Premium module.',
-      pdf_reports: 'PDF Reporting and Print Formats are Premium modules.',
-      receipt_attachments: 'Receipt Image Attachment upload is a Premium module.',
-      recurring_income: 'Recurring Income automation stream is a Premium module.',
-      recurring_expenses: 'Recurring Expense scheduling stream is a Premium module.',
-      multiple_businesses: 'Managing Multiple Business branch registers is a Premium module.',
-      advanced_analytics: 'Advanced BI charts and Business Insights are Premium modules.',
-      backup_restore: 'Local ledger Backup & Restore downloads are Premium modules.',
+      receipt_attachments: 'Batch Receipt Ingest is a Pro feature.',
+      recurring_income: 'Recurring Income automation is a Pro feature.',
+      recurring_expenses: 'Recurring Expense scheduling is a Pro feature.',
+      multiple_businesses: 'Managing Multiple Business Workspaces is a Pro feature.',
+      advanced_analytics: 'Advanced BI charts and Business Insights are Pro features.',
     };
     return { 
       allowed: false, 
-      message: labels[feature] || 'This enterprise capability is a Premium module.' 
+      message: labels[feature] || 'This capability requires a Pro license.' 
     };
   }
 

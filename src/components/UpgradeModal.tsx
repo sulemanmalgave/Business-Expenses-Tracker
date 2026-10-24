@@ -66,7 +66,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
             </div>
             <div className="flex items-center space-x-1.5 text-slate-650 dark:text-slate-400">
               <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-              <span>Excel-Compatible Export</span>
+              <span>Advanced BI Analytics</span>
             </div>
             <div className="flex items-center space-x-1.5 text-slate-650 dark:text-slate-400">
               <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />

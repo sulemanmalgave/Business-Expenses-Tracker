@@ -59,8 +59,8 @@ export const AboutView: React.FC<AboutViewProps> = ({ onBack, onNavigate }) => {
                 desc: 'Slice and analyze overhead allocations, flow tendencies, and Profit & Loss ratios.',
               },
               {
-                title: 'Custom Local Backup',
-                desc: 'Instantly download cryptographically sound local backup dumps or migrate databases in seconds.',
+                title: 'Structured Local Backup',
+                desc: 'Instantly download structured local JSON backup files or migrate databases in seconds without cloud lock-in.',
               },
               {
                 title: 'Native Windows & Display Match',

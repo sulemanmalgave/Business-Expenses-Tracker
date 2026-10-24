@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, CheckCircle2, Shield, Calendar, CreditCard, Award, Zap, HelpCircle } from 'lucide-react';
 import { UserProfile } from '../types';
-import { isSubscriptionActive } from '../utils/subscriptionService';
+import { isSubscriptionActive, getDisplayPrice } from '../utils/subscriptionService';
 
 interface SubscriptionViewProps {
   profile: UserProfile;
@@ -252,11 +252,13 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
           {/* Plan 1: Pro Monthly */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4 relative flex flex-col justify-between">
             <div className="space-y-2">
-              <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-450 px-2.5 py-1 rounded-full uppercase">Basic Rollover</span>
+              <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2.5 py-1 rounded-full uppercase">Monthly</span>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Pro Monthly</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Perfect for freelancers and short contracts.</p>
               <div className="flex items-baseline gap-1 pt-2">
-                <span className="text-2xl font-black text-slate-900 dark:text-white">$4.99</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-white">
+                  {getDisplayPrice('pro_monthly', profile.currency).formatted}
+                </span>
                 <span className="text-xs text-slate-400">/ month</span>
               </div>
             </div>
@@ -274,15 +276,17 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
           {/* Plan 2: Pro Yearly */}
           <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500 rounded-3xl p-6 shadow-md shadow-indigo-500/5 space-y-4 relative flex flex-col justify-between">
             <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-bold uppercase tracking-widest bg-indigo-600 text-white px-3 py-0.5 rounded-full whitespace-nowrap">
-              Highly Recommended (Save 20%)
+              Best Value (Save 55%)
             </span>
             
             <div className="space-y-2">
-              <span className="text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full uppercase">Standard Annual</span>
+              <span className="text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-full uppercase">Annual</span>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Pro Yearly</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-450 font-sans">Ideal for small businesses and serious managers.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">Ideal for small businesses and contractors.</p>
               <div className="flex items-baseline gap-1 pt-2">
-                <span className="text-2xl font-black text-slate-900 dark:text-white">$49.00</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-white">
+                  {getDisplayPrice('pro_yearly', profile.currency).formatted}
+                </span>
                 <span className="text-xs text-slate-400">/ year</span>
               </div>
             </div>
@@ -300,12 +304,14 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
           {/* Plan 3: Lifetime */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4 relative flex flex-col justify-between">
             <div className="space-y-2">
-              <span className="text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full uppercase">Supreme Sovereign</span>
+              <span className="text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full uppercase">One-Time License</span>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">Lifetime Deal</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Pay once, own forever. Never see any renewal reminder block.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Pay once, own forever. No subscription or renewal fees.</p>
               <div className="flex items-baseline gap-1 pt-2">
-                <span className="text-2xl font-black text-slate-900 dark:text-white">$99.00</span>
-                <span className="text-xs text-slate-400">one-time payment</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-white">
+                  {getDisplayPrice('lifetime', profile.currency).formatted}
+                </span>
+                <span className="text-xs text-slate-400">one-time</span>
               </div>
             </div>
 

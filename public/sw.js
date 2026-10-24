@@ -1,11 +1,8 @@
-// Service Worker for Business Expense Tracker PWA
-const CACHE_NAME = 'bet-cache-v1';
-const ASSETS_TO_CACHE = [
+// Service Worker for Business Expense Tracker – Small Business PWA
+const CACHE_NAME = 'bet-cache-v2';
+const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/src/main.tsx',
-  '/src/App.tsx',
-  '/src/index.css',
   '/icon.svg',
   '/icon-192.svg',
   '/icon-512.svg',
@@ -14,8 +11,13 @@ const ASSETS_TO_CACHE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Resilient caching: add items individually so one missing asset never fails SW installation
+      await Promise.allSettled(
+        STATIC_ASSETS.map((url) => 
+          cache.add(url).catch((err) => console.warn('[SW] Cache prefetch skipped for:', url, err))
+        )
+      );
     }).then(() => self.skipWaiting())
   );
 });
@@ -35,43 +37,57 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only cache GET requests
   if (event.request.method !== 'GET') {
     return;
   }
 
+  // Handle SPA navigation: try network, fall back to cached index.html
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // For static assets: cache-first with network revalidation
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch fresh copy in the background
+        // Revalidate in background
         fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
             }
           })
-          .catch(() => { /* Ignore fetch errors when offline */ });
-          
+          .catch(() => {});
         return cachedResponse;
       }
 
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
           return networkResponse;
-        }
-
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
+        })
+        .catch(() => {
+          if (event.request.destination === 'image') {
+            return caches.match('/icon.svg');
+          }
+          return caches.match('/index.html');
         });
-
-        return networkResponse;
-      }).catch(() => {
-        // Fallback for offline if not found
-        return caches.match('/index.html');
-      });
     })
   );
 });

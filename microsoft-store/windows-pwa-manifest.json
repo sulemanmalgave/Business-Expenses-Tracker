@@ -1,0 +1,23 @@
+{
+  "packageId": "BusinessExpenseTracker.SmallBusiness",
+  "version": "1.1.0.0",
+  "name": "Business Expense Tracker – Small Business",
+  "short_name": "ExpenseTrack",
+  "description": "Track income, expenses, cash flow, and client invoices with a private, offline-first business ledger.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0F172A",
+  "background_color": "#0F172A",
+  "web_app_url": "https://com.businessexpensetracker.app",
+  "windows_tile_assets": {
+    "Square44x44Logo": "/windows/Square44x44Logo.svg",
+    "Square150x150Logo": "/windows/Square150x150Logo.svg",
+    "Wide310x150Logo": "/windows/Wide310x150Logo.svg",
+    "StoreLogo": "/windows/StoreLogo.svg"
+  },
+  "capabilities": [
+    "internetClient"
+  ],
+  "min_os_version": "10.0.19041.0"
+}

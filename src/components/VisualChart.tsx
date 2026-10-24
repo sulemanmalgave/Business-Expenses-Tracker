@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Transaction } from '../types';
+import { Transaction, UserProfile } from '../types';
+import { roundMoney } from '../utils/financeCalculations';
 
 interface GroupedData {
   label: string;
@@ -10,17 +11,20 @@ interface GroupedData {
 
 interface VisualChartProps {
   transactions: Transaction[];
-  type: 'incomeVsExpense' | 'categoryBreakdown';
+  type?: 'incomeVsExpense' | 'categoryBreakdown';
   transactionTypeFilter?: 'income' | 'expense';
-  currency: string;
+  currency?: string;
+  profile?: UserProfile;
 }
 
 export const VisualChart: React.FC<VisualChartProps> = ({
   transactions,
-  type,
+  type = 'incomeVsExpense',
   transactionTypeFilter = 'expense',
-  currency,
+  currency: rawCurrency,
+  profile,
 }) => {
+  const currency = profile?.currency || rawCurrency || '$';
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (transactions.length === 0) {
@@ -67,6 +71,7 @@ export const VisualChart: React.FC<VisualChartProps> = ({
 
     transactions.forEach((tx) => {
       if (!tx.date) return;
+      if (tx.isTransfer || (tx.category && (tx.category.toLowerCase() === 'transfer' || tx.category.toLowerCase() === 'account transfer'))) return;
       const txDate = new Date(tx.date);
       if (isNaN(txDate.getTime())) return;
       
@@ -75,10 +80,12 @@ export const VisualChart: React.FC<VisualChartProps> = ({
       const label = `${months[txMonthIdx]} ${txYear.toString().slice(-2)}`;
 
       if (monthlyGroups[label] !== undefined) {
+        const rate = typeof tx.exchangeRate === 'number' && tx.exchangeRate > 0 ? tx.exchangeRate : 1;
+        const baseAmount = roundMoney(tx.amount * rate);
         if (tx.type === 'income') {
-          monthlyGroups[label].income += tx.amount;
+          monthlyGroups[label].income = roundMoney(monthlyGroups[label].income + baseAmount);
         } else {
-          monthlyGroups[label].expense += tx.amount;
+          monthlyGroups[label].expense = roundMoney(monthlyGroups[label].expense + baseAmount);
         }
       }
     });
@@ -276,18 +283,41 @@ export const VisualChart: React.FC<VisualChartProps> = ({
   }
 
   // CATEGORY BREAKDOWN PIE / DONUT CHART
-  // Filter transactions of requested type
-  const targetTxs = transactions.filter((t) => t.type === transactionTypeFilter);
+  // Filter transactions of requested type and exclude internal transfers
+  const targetTxs = transactions.filter((t) => {
+    if (t.isTransfer || (t.category && (t.category.toLowerCase() === 'transfer' || t.category.toLowerCase() === 'account transfer'))) {
+      return false;
+    }
+    return t.type === transactionTypeFilter;
+  });
   const totalsByCategory: Record<string, number> = {};
   let overallTotal = 0;
 
   targetTxs.forEach((tx) => {
-    totalsByCategory[tx.category] = (totalsByCategory[tx.category] || 0) + tx.amount;
-    overallTotal += tx.amount;
+    const rate = typeof tx.exchangeRate === 'number' && tx.exchangeRate > 0 ? tx.exchangeRate : 1;
+    const baseAmount = roundMoney(tx.amount * rate);
+    const catName = tx.category || (tx.type === 'income' ? 'Client Services' : 'Other Expenses');
+    totalsByCategory[catName] = roundMoney((totalsByCategory[catName] || 0) + baseAmount);
+    overallTotal = roundMoney(overallTotal + baseAmount);
   });
 
   // Convert to sorted lists
   const categoryColors: Record<string, string> = {
+    'Client Services': '#10b981',
+    'Product Sales': '#3b82f6',
+    'Consulting & Advisory': '#8b5cf6',
+    'Affiliate & Ads': '#f59e0b',
+    'Investments': '#ec4899',
+    'Miscellaneous Income': '#6b7280',
+    'Office Rent & Workspace': '#f43f5e',
+    'Salaries & Contractors': '#de66fa',
+    'Software & SaaS Tools': '#06b6d4',
+    'Marketing & Advertising': '#f97316',
+    'Travel & Meals': '#14b8a6',
+    'Office Hardware & Supplies': '#64748b',
+    'Utilities & Internet': '#eab308',
+    'Tax, Legal & Accounting': '#6366f1',
+    'Other Expenses': '#94a3b8',
     Rent: '#f43f5e',
     Marketing: '#f97316',
     Salaries: '#a855f7',
@@ -298,9 +328,13 @@ export const VisualChart: React.FC<VisualChartProps> = ({
 
   const sortedCategories = Object.entries(totalsByCategory)
     .map(([name, amount], idx) => {
-      // Find a matching color or fallback using a deterministic hash or simple index loop
       const color = categoryColors[name] || `hsl(${(idx * 137.5) % 360}, 70%, 50%)`;
-      return { name, amount, color, percent: overallTotal > 0 ? (amount / overallTotal) * 100 : 0 };
+      return { 
+        name, 
+        amount: roundMoney(amount), 
+        color, 
+        percent: overallTotal > 0 ? (amount / overallTotal) * 100 : 0 
+      };
     })
     .sort((a, b) => b.amount - a.amount);
 

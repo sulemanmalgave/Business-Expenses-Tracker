@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Building, 
   User, 
@@ -13,7 +13,12 @@ import {
   Percent, 
   Sparkles,
   CheckCircle2,
-  FolderLock
+  FolderLock,
+  ShieldCheck,
+  HardDrive,
+  Download,
+  AlertTriangle,
+  ArrowRight
 } from 'lucide-react';
 import { Category, UserProfile } from '../types';
 import { DEFAULT_CURRENCIES } from '../utils/financeUtils';
@@ -33,6 +38,7 @@ interface SettingsViewProps {
   onSwitchBusiness?: (id: string) => void;
   onCreateBusiness?: (name: string) => void;
   onDeleteBusiness?: (id: string) => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -50,6 +56,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSwitchBusiness,
   onCreateBusiness,
   onDeleteBusiness,
+  onNavigateTab,
 }) => {
   // Form parameters
   const [businessName, setBusinessName] = useState(profile.businessName);
@@ -64,6 +71,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Custom visual feedback states
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [lastBackupTime, setLastBackupTime] = useState<string | null>(null);
+  const [entityToDelete, setEntityToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    const raw = localStorage.getItem('finance_app_last_backup');
+    if (raw) {
+      try {
+        const d = new Date(raw);
+        if (!isNaN(d.getTime())) {
+          setLastBackupTime(d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
+        }
+      } catch {
+        setLastBackupTime(raw);
+      }
+    }
+  }, []);
 
   // Category Builder
   const [newCatName, setNewCatName] = useState('');
@@ -74,9 +97,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateProfile({
-      businessName: businessName.trim() || 'Apex Workspace',
-      ownerName: ownerName.trim() || 'sarah',
-      email: email.trim() || 'sarah@work.com',
+      businessName: businessName.trim() || 'Business Workspace',
+      ownerName: ownerName.trim() || 'Finance Manager',
+      email: email.trim() || 'finance@business.local',
       currency,
       taxRate: parseFloat(taxRate) || 0,
       businessType,
@@ -103,13 +126,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Header */}
       <div>
         <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
-          Executive Workspace
+          Preferences & Taxonomy
         </span>
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-          System Settings & Taxonomy
+          Settings & Categories
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Sync enterprise currency tokens, structure custom corporate classifications, and toggle dark frames.
+          Configure business identity, reporting currency, categories, financial year, and application settings.
         </p>
       </div>
 
@@ -118,10 +141,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm lg:col-span-7">
           <div className="border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
             <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150">
-              Corporate Ledger Settings
+              Business Profile & Preferences
             </h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-              Customize company headers, set base tax provisions, and select active currencies
+              Customize company name, owner info, base currency, and financial year start
             </p>
           </div>
 
@@ -129,7 +152,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {/* Business Name */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                Company Name
+                Business / Company Name
               </label>
               <div className="relative">
                 <Building className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -137,7 +160,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   type="text"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="Apex advisory LLC"
+                  placeholder="My Small Business / Freelance Studio"
                   className="w-full pl-10 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-850 rounded-xl text-xs outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
                 />
               </div>
@@ -147,7 +170,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                  CFO / Manager Owner
+                  Owner / Manager Name
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -155,7 +178,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="text"
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
-                    placeholder="Jen sarah"
+                    placeholder="e.g. Rahul Sharma"
                     className="w-full pl-10 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-850 rounded-xl text-xs outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
                   />
                 </div>
@@ -163,7 +186,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                  Reporting Email
+                  Contact / Reporting Email
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -171,7 +194,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="sarah@corp.com"
+                    placeholder="finance@mybusiness.com"
                     className="w-full pl-10 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-850 rounded-xl text-xs outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
                   />
                 </div>
@@ -182,7 +205,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                  Reporting Currency Token
+                  Base Currency
                 </label>
                 <div className="relative">
                   <Coins className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -202,7 +225,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                  Standard Tax Provisions (%)
+                  Estimated Tax Reserve (%)
                 </label>
                 <div className="relative">
                   <Percent className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -403,7 +426,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500' 
                           : 'bg-rose-50 dark:bg-rose-950/20 text-rose-500'
                       }`}>
-                        {c.type === 'income' ? 'Inflows' : 'Costs'}
+                        {c.type === 'income' ? 'Income' : 'Expense'}
                       </span>
                     </div>
 
@@ -421,7 +444,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {customCategories.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-6 text-slate-400">
                     <FolderLock className="w-5 h-5 text-slate-350 dark:text-slate-600 mb-1" />
-                    <span className="text-[10px]">No custom user taxonomies logged in sandbox.</span>
+                    <span className="text-[10px]">No custom categories added yet.</span>
                   </div>
                 )}
               </div>
@@ -430,17 +453,86 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Corporate Multi-Entity Manager */}
+      {/* Data Ownership, Privacy & Local Storage Status Card */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm mt-5 space-y-4">
+        <div className="border-b border-slate-100 dark:border-slate-800/60 pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl text-emerald-600 dark:text-emerald-400">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <span>Data Ownership & Local Storage</span>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                  100% Offline-First
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                Transparent disclosure of local storage mechanisms, privacy guarantees, and backup status.
+              </p>
+            </div>
+          </div>
+
+          {onNavigateTab && (
+            <button
+              type="button"
+              onClick={() => onNavigateTab('backup')}
+              className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 self-start sm:self-center transition-colors pointer-events-auto"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Backups & Export</span>
+              <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+              <HardDrive className="w-4 h-4 text-indigo-500" />
+              <span>Device-Only Storage</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Your ledger, receipts, invoices, and settings are saved securely on your device using IndexedDB with persistent storage.
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>Zero Silent Cloud Uploads</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              No financial data, invoices, or customer details are ever uploaded to external cloud servers. You retain full ownership.
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+              <Download className="w-4 h-4 text-blue-500" />
+              <span>Last Saved Backup</span>
+            </div>
+            <p className="text-[11px] font-mono text-slate-700 dark:text-slate-300">
+              {lastBackupTime ? lastBackupTime : 'No backup exported yet'}
+            </p>
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Export regular JSON backups to protect against browser cache clearing or device changes.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Multiple Business Profiles (Pro) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm mt-5">
         <div className="border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150 flex items-center gap-1.5">
-              <Building className="w-4 h-4 text-indigo-500 text-slate-500" />
-              <span>Multi-Entity Corporate Profiles</span>
-              {!isPremium && <span className="text-[8px] font-bold text-indigo-500 bg-indigo-500/10 px-1 py-0.2 rounded-full uppercase">🔒 Pro</span>}
+              <Building className="w-4 h-4 text-indigo-500" />
+              <span>Multiple Business Profiles</span>
+              {!isPremium && <span className="text-[8px] font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-full uppercase">🔒 Pro</span>}
             </h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-              Create and manage separate independent business ledgers with individual sandbox reporting.
+              Manage separate independent business workspaces with distinct ledger reporting and categories.
             </p>
           </div>
           
@@ -448,10 +540,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             type="button"
             onClick={() => {
               if (!isPremium) {
-                onUpgradeTrigger?.('Managing multiple separate company ledgers is a Premium/Pro feature.');
+                onUpgradeTrigger?.('Managing multiple separate company ledgers is a Pro feature.');
                 return;
               }
-              const name = prompt('Enter corporate identity name:');
+              const name = prompt('Enter new business workspace name:');
               if (name && name.trim()) {
                 onCreateBusiness?.(name.trim());
               }
@@ -459,7 +551,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 self-start sm:self-center transition-colors pointer-events-auto shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Entity</span>
+            <span>Add Business</span>
           </button>
         </div>
 
@@ -485,7 +577,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </span>
                     ) : (
                       <span className="text-[8px] uppercase tracking-wider font-extrabold text-slate-400 bg-slate-200/50 dark:bg-slate-800 px-1.5 py-0.5 rounded-md">
-                        SANDBOX
+                        SWITCH
                       </span>
                     )}
                   </div>
@@ -499,9 +591,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Are you sure you want to permanently delete entity "${biz.name}" and erase all associated transactions?`)) {
-                        onDeleteBusiness?.(biz.id);
-                      }
+                      setEntityToDelete({ id: biz.id, name: biz.name });
                     }}
                     className={`text-[10px] hover:text-rose-500 font-bold self-end flex items-center gap-1 mt-2 text-slate-550`}
                   >
@@ -514,6 +604,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           })}
         </div>
       </div>
+
+      {/* In-App Confirmation Modal for deleting business workspace */}
+      <AnimatePresence>
+        {entityToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/50 rounded-2xl">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Business Profile?</h3>
+                  <p className="text-xs text-slate-500">This action cannot be undone.</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Are you sure you want to delete <span className="font-bold text-slate-900 dark:text-white">"{entityToDelete.name}"</span>?
+                This workspace will be removed from your profile list.
+              </p>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEntityToDelete(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (entityToDelete) {
+                      onDeleteBusiness?.(entityToDelete.id);
+                      setEntityToDelete(null);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-colors"
+                >
+                  Delete Profile
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

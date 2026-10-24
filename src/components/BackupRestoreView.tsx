@@ -1,25 +1,35 @@
 import React, { useState, useRef } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Download, 
   Upload, 
   Database, 
   Trash2, 
   RefreshCw, 
-  AlertCircle,
+  AlertCircle, 
+  CheckCircle, 
+  AlertTriangle,
   FileSpreadsheet,
-  CheckCircle,
-  HelpCircle,
-  BadgeAlert
+  Layers,
+  ArrowRight,
+  ShieldCheck,
+  X
 } from 'lucide-react';
-import { Transaction, Category, UserProfile } from '../types';
-import { parseCSVData } from '../utils/financeUtils';
+import { Transaction, Category, UserProfile, RecurringBill } from '../types';
+import { parseCSVData, formatCurrency } from '../utils/financeUtils';
+import { validateTransaction } from '../utils/financeCalculations';
 
 interface BackupRestoreViewProps {
   transactions: Transaction[];
   categories: Category[];
   profile: UserProfile;
-  onRestoreData: (restoredTransactions: Transaction[], restoredCategories?: Category[], restoredProfile?: UserProfile) => void;
+  recurringBills?: RecurringBill[];
+  onRestoreData: (
+    restoredTransactions: Transaction[], 
+    restoredCategories?: Category[], 
+    restoredProfile?: UserProfile,
+    restoredBills?: RecurringBill[]
+  ) => void;
   onImportTransactions: (imported: Omit<Transaction, 'id'>[]) => void;
   onResetToDemo: () => void;
   onClearAll: () => void;
@@ -28,84 +38,222 @@ interface BackupRestoreViewProps {
   onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
 
+interface BackupFilePayload {
+  version: number;
+  app: string;
+  timestamp: string;
+  transactions: Transaction[];
+  categories: Category[];
+  profile: UserProfile;
+  recurringBills?: RecurringBill[];
+}
+
 export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
   transactions,
   categories,
   profile,
+  recurringBills = [],
   onRestoreData,
   onImportTransactions,
   onResetToDemo,
   onClearAll,
   onResetApplication,
-  isPremium = false,
-  onUpgradeTrigger,
 }) => {
   const [dragActiveJson, setDragActiveJson] = useState(false);
-  const [dragActiveCsv, setDragActiveCsv] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' | null }>({
     text: '',
     type: null,
   });
 
+  // Restore Modal State
+  const [pendingRestore, setPendingRestore] = useState<{
+    payload: BackupFilePayload;
+    duplicateCount: number;
+    newCount: number;
+  } | null>(null);
+
+  // CSV Import Preview State
+  const [pendingCsvRows, setPendingCsvRows] = useState<Partial<Transaction>[] | null>(null);
+  const [csvValidationErrors, setCsvValidationErrors] = useState<string[]>([]);
+  const [maintenanceAction, setMaintenanceAction] = useState<'demo' | 'clear' | null>(null);
+
   const fileInputJsonRef = useRef<HTMLInputElement>(null);
   const fileInputCsvRef = useRef<HTMLInputElement>(null);
 
-  // Helper trigger message
   const triggerMsg = (text: string, type: 'success' | 'error' | 'info') => {
     setStatusMessage({ text, type });
     setTimeout(() => {
       setStatusMessage({ text: '', type: null });
-    }, 4500);
+    }, 5000);
   };
 
-  // Full backup to JSON helper
-  const handleBackupJson = () => {
+  // Compile and Export Full Versioned JSON Backup
+  const handleExportBackupJson = () => {
     try {
-      const backupPayload = {
-        app_signature: 'finance_tracker_backup_v1',
+      const backupPayload: BackupFilePayload = {
+        version: 2,
+        app: 'business_expense_tracker',
         timestamp: new Date().toISOString(),
         transactions,
         categories,
         profile,
+        recurringBills,
       };
 
+      const dateTag = new Date().toISOString().split('T')[0];
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupPayload, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', dataStr);
-      downloadAnchor.setAttribute('download', 'business_finance_backup.json');
+      downloadAnchor.setAttribute('download', `business_expense_tracker_backup_${dateTag}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       document.body.removeChild(downloadAnchor);
-      triggerMsg('Database backup JSON compiled and downloaded successfully.', 'success');
+      localStorage.setItem('finance_app_last_backup', new Date().toISOString());
+      triggerMsg(`Database backup (${transactions.length} records) exported safely.`, 'success');
     } catch (err) {
-      triggerMsg('Failed to compile local ledger backups. Please retry.', 'error');
+      triggerMsg('Failed to compile local database backup file.', 'error');
     }
   };
 
-  // Full Restore from JSON handler
-  const handleRestoreJsonFile = (file: File) => {
+  // Validate and parse incoming JSON file
+  const handleInspectJsonFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const text = e.target?.result as string;
         const parsed = JSON.parse(text);
 
-        if (parsed.app_signature !== 'finance_tracker_backup_v1' && !parsed.transactions) {
-          triggerMsg('Invalid file schema. Backup is not formatted correctly.', 'error');
+        // Validation of file structure
+        if (!parsed || (typeof parsed !== 'object')) {
+          triggerMsg('Invalid backup file: Not a valid JSON document.', 'error');
           return;
         }
 
-        onRestoreData(parsed.transactions || [], parsed.categories || [], parsed.profile || undefined);
-        triggerMsg('Ledger entries and categories loaded successfully. UI updated.', 'success');
+        const rawTxs: any[] = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+        const rawCats: any[] = Array.isArray(parsed.categories) ? parsed.categories : [];
+
+        // Check for required transaction fields
+        const validTxs: Transaction[] = [];
+        for (const t of rawTxs) {
+          if (t && typeof t === 'object' && t.id && t.type && typeof t.amount === 'number' && t.date) {
+            validTxs.push({
+              id: String(t.id),
+              type: t.type === 'income' ? 'income' : 'expense',
+              amount: Math.abs(t.amount),
+              currency: t.currency || profile.currency,
+              exchangeRate: typeof t.exchangeRate === 'number' ? t.exchangeRate : 1.0,
+              category: t.category || (t.type === 'income' ? 'Client Services' : 'Other Expenses'),
+              date: t.date,
+              description: t.description || 'Restored Record',
+              paymentMethod: t.paymentMethod,
+              account: t.account,
+              project: t.project,
+              notes: t.notes,
+              receipt: t.receipt,
+              receiptName: t.receiptName,
+              isRecurring: !!t.isRecurring,
+              recurrencePeriod: t.recurrencePeriod || 'none',
+              createdAt: t.createdAt,
+              updatedAt: t.updatedAt,
+            });
+          }
+        }
+
+        // Count potential duplicates against active ledger
+        const existingIds = new Set(transactions.map((t) => t.id));
+        let duplicateCount = 0;
+        let newCount = 0;
+
+        for (const t of validTxs) {
+          if (existingIds.has(t.id)) {
+            duplicateCount++;
+          } else {
+            newCount++;
+          }
+        }
+
+        const payload: BackupFilePayload = {
+          version: parsed.version || 1,
+          app: parsed.app || 'business_expense_tracker',
+          timestamp: parsed.timestamp || new Date().toISOString(),
+          transactions: validTxs,
+          categories: rawCats,
+          profile: parsed.profile || profile,
+          recurringBills: Array.isArray(parsed.recurringBills) ? parsed.recurringBills : [],
+        };
+
+        setPendingRestore({
+          payload,
+          duplicateCount,
+          newCount,
+        });
       } catch (err) {
-        triggerMsg('Parser failed to decode backup file. Confirm standard JSON formatting.', 'error');
+        triggerMsg('Could not parse backup file. Please ensure it is a valid JSON backup.', 'error');
       }
     };
     reader.readAsText(file);
   };
 
-  // Import rows from standard business CSV helper
-  const handleImportCsvFile = (file: File) => {
+  // Perform Destructive Replace Restore with automatic pre-restore safety snapshot
+  const executeReplaceRestore = () => {
+    if (!pendingRestore) return;
+
+    // 1. Create safety recovery copy first!
+    try {
+      const emergencySnapshot = {
+        timestamp: new Date().toISOString(),
+        transactions,
+        categories,
+        profile,
+      };
+      localStorage.setItem('finance_app_pre_restore_safety_snapshot', JSON.stringify(emergencySnapshot));
+    } catch (_) {}
+
+    // 2. Restore data
+    onRestoreData(
+      pendingRestore.payload.transactions,
+      pendingRestore.payload.categories,
+      pendingRestore.payload.profile,
+      pendingRestore.payload.recurringBills
+    );
+
+    triggerMsg(
+      `Restored ${pendingRestore.payload.transactions.length} transactions and categories. Pre-restore safety snapshot saved.`,
+      'success'
+    );
+    setPendingRestore(null);
+  };
+
+  // Perform Non-Destructive Merge Restore
+  const executeMergeRestore = () => {
+    if (!pendingRestore) return;
+
+    const existingIds = new Set(transactions.map((t) => t.id));
+    const mergedTxs = [...transactions];
+
+    for (const t of pendingRestore.payload.transactions) {
+      if (!existingIds.has(t.id)) {
+        mergedTxs.push(t);
+      }
+    }
+
+    // Merge categories
+    const existingCatNames = new Set(categories.map((c) => `${c.name}_${c.type}`.toLowerCase()));
+    const mergedCats = [...categories];
+    for (const c of pendingRestore.payload.categories) {
+      const key = `${c.name}_${c.type}`.toLowerCase();
+      if (!existingCatNames.has(key)) {
+        mergedCats.push(c);
+      }
+    }
+
+    onRestoreData(mergedTxs, mergedCats, undefined, pendingRestore.payload.recurringBills);
+    triggerMsg(`Merged ${pendingRestore.newCount} new transactions into active ledger.`, 'success');
+    setPendingRestore(null);
+  };
+
+  // CSV File Handler
+  const handleInspectCsvFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -113,325 +261,433 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
         const parsedRaw = parseCSVData(text);
 
         if (parsedRaw.length === 0) {
-          triggerMsg('CSV file is empty or formatted incorrectly. Confirm columns headers.', 'error');
+          triggerMsg('CSV file is empty or formatted incorrectly. Please check column headers.', 'error');
           return;
         }
 
-        const validImports: Omit<Transaction, 'id'>[] = parsedRaw.map((t) => ({
-          type: t.type || 'expense',
-          amount: t.amount || 0,
-          category: t.category || 'Other Expenses',
-          date: t.date || new Date().toISOString().split('T')[0],
-          description: t.description || 'Imported Line',
-          isRecurring: false,
-          recurrencePeriod: 'none',
-          currency: profile.currency,
-          exchangeRate: 1.0,
-        }));
+        const errors: string[] = [];
+        const validatedRows: Partial<Transaction>[] = [];
 
-        onImportTransactions(validImports);
-        triggerMsg(`Successfully ingested ${validImports.length} transaction entries into active ledger.`, 'success');
+        parsedRaw.forEach((row, idx) => {
+          const rowNum = idx + 2; // account for 1-indexed and header
+          if (!row.amount || isNaN(row.amount) || row.amount <= 0) {
+            errors.push(`Row ${rowNum}: Invalid or missing amount (${row.amount})`);
+          } else {
+            validatedRows.push(row);
+          }
+        });
+
+        setCsvValidationErrors(errors);
+        setPendingCsvRows(validatedRows);
       } catch (err) {
-        triggerMsg('Csv parsing exception. Check delimiter commas and date formats.', 'error');
+        triggerMsg('Error reading CSV file. Confirm valid comma-separated values.', 'error');
       }
     };
     reader.readAsText(file);
   };
 
-  // Drag and drop events JSON
-  const handleDragJson = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActiveJson(true);
-    } else if (e.type === 'dragleave') {
-      setDragActiveJson(false);
-    }
+  const executeCsvImport = () => {
+    if (!pendingCsvRows || pendingCsvRows.length === 0) return;
+
+    const validImports: Omit<Transaction, 'id'>[] = pendingCsvRows.map((t) => ({
+      type: t.type === 'income' ? 'income' : 'expense',
+      amount: t.amount || 0,
+      currency: profile.currency,
+      exchangeRate: 1.0,
+      category: t.category || (t.type === 'income' ? 'Client Services' : 'Other Expenses'),
+      date: t.date || new Date().toISOString().split('T')[0],
+      description: t.description || 'Imported Transaction',
+      isRecurring: false,
+      recurrencePeriod: 'none',
+      createdAt: new Date().toISOString(),
+    }));
+
+    onImportTransactions(validImports);
+    triggerMsg(`Successfully ingested ${validImports.length} transactions from CSV.`, 'success');
+    setPendingCsvRows(null);
+    setCsvValidationErrors([]);
   };
-
-  const handleDropJson = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActiveJson(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleRestoreJsonFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Drag and drop events CSV
-  const handleDragCsv = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActiveCsv(true);
-    } else if (e.type === 'dragleave') {
-      setDragActiveCsv(false);
-    }
-  };
-
-  const handleDropCsv = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActiveCsv(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleImportCsvFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Storage Stats Calculator
-  const getDatabaseByteSize = () => {
-    let totals = 0;
-    try {
-      totals += JSON.stringify(transactions).length;
-      totals += JSON.stringify(categories).length;
-      totals += JSON.stringify(profile).length;
-    } catch (_) {}
-    return totals;
-  };
-
-  const dbSizeInBytes = getDatabaseByteSize();
-  const dbFormatSize = (dbSizeInBytes / 1024).toFixed(2);
 
   return (
     <div className="space-y-6">
+      
       {/* Header */}
       <div>
-        <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
-          Data Security Office
+        <span className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+          Data Portability & Safety
         </span>
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-          Backup, Restore & Data Migration
+          Backup & Restore
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Secure sandbox export. Save secure backups offline or batch import excel CSV bookkeeping rows.
+          Export complete financial archives, restore snapshots with duplicate detection, or import CSV bank statements.
         </p>
       </div>
 
-      {/* Floating dynamic messages banner */}
+      {/* Notification Toast */}
       {statusMessage.text && (
-        <div className={`p-4 rounded-2xl border flex items-center space-x-3 text-slate-900 ${
-          statusMessage.type === 'success' 
-            ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-350' 
+        <div className={`p-4 rounded-2xl flex items-center gap-2.5 text-xs font-semibold ${
+          statusMessage.type === 'success'
+            ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40'
             : statusMessage.type === 'error'
-            ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40 text-rose-800 dark:text-rose-350'
-            : 'bg-indigo-50 border-indigo-250 text-indigo-850'
+            ? 'bg-rose-50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40'
+            : 'bg-blue-50 dark:bg-blue-950/20 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-900/40'
         }`}>
           {statusMessage.type === 'success' ? (
-            <CheckCircle className="w-5 h-5 shrink-0 text-emerald-500" />
+            <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
           ) : (
-            <AlertCircle className="w-5 h-5 shrink-0 text-rose-500" />
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
           )}
-          <span className="text-xs font-semibold">{statusMessage.text}</span>
+          <span>{statusMessage.text}</span>
         </div>
       )}
 
-      {/* Database Diagnostic Board */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Metric 1 */}
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Ledger Entries</span>
-          <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 mt-1 block">{transactions.length} Rows</span>
-        </div>
-
-        {/* Metric 2 */}
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Schedules Recurring</span>
-          <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 mt-1 block">
-            {transactions.filter((t) => t.isRecurring).length} Contracts
-          </span>
-        </div>
-
-        {/* Metric 3 */}
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom Taxonomy Categories</span>
-          <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 mt-1 block">
-            {categories.filter((c) => c.isCustom).length} Streams
-          </span>
-        </div>
-
-        {/* Metric 4 */}
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Database Storage Footprint</span>
-          <span className="text-lg font-bold font-mono text-indigo-500 mt-1 block">{dbFormatSize} KB</span>
-        </div>
-      </div>
-
-      {/* Drag & drop sections Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Box Left: Restore JSON Backups */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between relative overflow-hidden">
-          {!isPremium && (
-            <div className="absolute inset-0 bg-white/75 dark:bg-slate-950/75 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-center p-6 select-none">
-              <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center mb-3 border border-indigo-200 dark:border-indigo-800/40 text-indigo-500">
-                <Database className="w-5 h-5" />
-              </div>
-              <h4 className="text-xs font-bold text-slate-850 dark:text-slate-150">Durable JSON Backups Locked</h4>
-              <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] leading-relaxed">
-                Purchase a Pro license to download complete ledger JSON snapshots or restore historic savepoints in one drag & drop.
-              </p>
-              <button
-                type="button"
-                onClick={() => onUpgradeTrigger?.('Durable database backup & restoration is a Premium module.')}
-                className="mt-4 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold pointer-events-auto transition-colors"
-              >
-                Unlock Backup & Restore
-              </button>
+      {/* Action Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Card 1: Full JSON Backup Export & Restore */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+              <Database className="w-5 h-5" />
             </div>
-          )}
-          <div className="space-y-1">
-            <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150 flex items-center space-x-2">
-              <Database className="w-4 h-4 text-indigo-500" />
-              <span>Full Local Database Save-point</span>
-            </h3>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500">
-              Download complete database backups or drop an existing `.json` ledger archive back into the system.
-            </p>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Full Workspace Backup (JSON)</h3>
+              <p className="text-[11px] text-slate-400">Versioned backup containing transactions, categories, and settings</p>
+            </div>
           </div>
 
-          {/* Backup Action Trigger Button */}
-          <button
-            onClick={handleBackupJson}
-            className="w-full py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-colors pointer-events-auto"
-          >
-            <Download className="w-4 h-4" />
-            <span>Generate Ledger JSON Backup</span>
-          </button>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            Download a portable snapshot of all financial records. You can restore this file on any device or after reinstalling.
+          </p>
 
-          {/* Drag & drop JSON */}
-          <div
-            onDragEnter={handleDragJson}
-            onDragOver={handleDragJson}
-            onDragLeave={handleDragJson}
-            onDrop={handleDropJson}
-            onClick={() => fileInputJsonRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors ${
-              dragActiveJson
-                ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20'
-                : 'border-slate-200 dark:border-slate-800 hover:border-slate-350 hover:bg-slate-50/40 dark:hover:bg-slate-800/10'
-            }`}
-          >
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <button
+              onClick={handleExportBackupJson}
+              className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors pointer-events-auto shadow-sm"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export Full Backup</span>
+            </button>
+
+            <button
+              onClick={() => fileInputJsonRef.current?.click()}
+              className="flex-1 py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors pointer-events-auto"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Restore from Backup</span>
+            </button>
             <input
-              type="file"
               ref={fileInputJsonRef}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleRestoreJsonFile(file);
-              }}
-              accept=".json"
-              className="hidden"
-            />
-            <Upload className="w-6 h-6 text-slate-400 mx-auto mb-2" />
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-350 block">Drop JSON database backup here</span>
-            <span className="text-[10px] text-slate-400 mt-1 block">or click to browse local files</span>
-          </div>
-        </div>
-
-        {/* Box Right: Import Excel-like CSV */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between">
-          <div className="space-y-1">
-            <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150 flex items-center space-x-2">
-              <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-              <span>Import Ledger Rows from CSV</span>
-            </h3>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500">
-              Bulk upload external payments from banks or spreadsheet. CSV headers expected: `Date`, `Description`, `Category`, `Amount`, `Type`.
-            </p>
-          </div>
-
-          <div className="bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl border border-divider">
-            <h4 className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Expected Column Blueprint</h4>
-            <code className="text-[9px] font-mono text-indigo-500 block mt-1">
-              Date,Amount,Type,Category,Description
-            </code>
-            <code className="text-[9px] font-mono text-slate-400 dark:text-slate-500 block">
-              2026-06-10,120.00,expense,Office Rent,Coworking workspace fee
-            </code>
-          </div>
-
-          {/* Drag & drop CSV */}
-          <div
-            onDragEnter={handleDragCsv}
-            onDragOver={handleDragCsv}
-            onDragLeave={handleDragCsv}
-            onDrop={handleDropCsv}
-            onClick={() => fileInputCsvRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors ${
-              dragActiveCsv
-                ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
-                : 'border-slate-200 dark:border-slate-800 hover:border-slate-350 hover:bg-slate-50/40 dark:hover:bg-slate-800/10'
-            }`}
-          >
-            <input
               type="file"
-              ref={fileInputCsvRef}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleImportCsvFile(file);
-              }}
-              accept=".csv"
+              accept=".json,application/json"
               className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleInspectJsonFile(e.target.files[0]);
+                }
+              }}
             />
-            <FileSpreadsheet className="w-6 h-6 text-slate-400 mx-auto mb-2" />
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-350 block">Drop spreadsheet CSV here</span>
-            <span className="text-[10px] text-slate-400 mt-1 block">or click to browse local folders</span>
           </div>
         </div>
+
+        {/* Card 2: CSV Import */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Import Bank Statement (CSV)</h3>
+              <p className="text-[11px] text-slate-400">Import CSV files with column mapping & error checks</p>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            Ingest external records from banks or bookkeeping software. Standard headers: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">Date, Description, Amount, Category, Type</code>.
+          </p>
+
+          <div className="pt-2">
+            <button
+              onClick={() => fileInputCsvRef.current?.click()}
+              className="w-full py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors pointer-events-auto"
+            >
+              <Upload className="w-4 h-4 text-emerald-600" />
+              <span>Select CSV File</span>
+            </button>
+            <input
+              ref={fileInputCsvRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleInspectCsvFile(e.target.files[0]);
+                }
+              }}
+            />
+          </div>
+        </div>
+
       </div>
 
-      {/* Danger Zone: reset ledger or wipe demo data */}
-      <div className="bg-rose-50/60 dark:bg-rose-950/15 border border-rose-100 dark:border-rose-900/40 p-5 rounded-3xl space-y-4">
-        <div>
-          <h3 className="text-sm font-bold text-rose-800 dark:text-rose-400 flex items-center space-x-1.5">
-            <BadgeAlert className="w-4 h-4 text-rose-500" />
-            <span>Operational Risk Management Zone</span>
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Destructive utilities. Wiping databases clears all local history. Re-seeding restores real-world demo rows for preview.
-          </p>
-        </div>
+      {/* Restore Confirmation Modal */}
+      <AnimatePresence>
+        {pendingRestore && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                    Confirm Backup Restoration
+                  </h3>
+                </div>
+                <button onClick={() => setPendingRestore(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Summary Stats */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Backup Export Date:</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {new Date(pendingRestore.payload.timestamp).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Records in File:</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {pendingRestore.payload.transactions.length} records
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">New (Unique) Records:</span>
+                  <span className="font-mono font-bold text-emerald-600">
+                    +{pendingRestore.newCount}
+                  </span>
+                </div>
+                {pendingRestore.duplicateCount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Matching / Existing IDs:</span>
+                    <span className="font-mono font-bold text-amber-500">
+                      {pendingRestore.duplicateCount}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Choose how you want to restore these records. Replacing will create an automatic pre-restore safety snapshot.
+              </p>
+
+              {/* Actions */}
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={executeMergeRestore}
+                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 pointer-events-auto transition-colors"
+                >
+                  <span>Merge with Existing Records (Skip {pendingRestore.duplicateCount} duplicates)</span>
+                </button>
+
+                <button
+                  onClick={executeReplaceRestore}
+                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 pointer-events-auto transition-colors"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Replace Entire Workspace (Save Pre-Restore Backup)</span>
+                </button>
+
+                <button
+                  onClick={() => setPendingRestore(null)}
+                  className="w-full py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CSV Import Preview Modal */}
+      <AnimatePresence>
+        {pendingCsvRows && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-2xl max-h-[85vh] shadow-2xl p-6 flex flex-col space-y-4 overflow-hidden"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                    CSV Records Preview ({pendingCsvRows.length} valid)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Review parsed rows before committing to your ledger</p>
+                </div>
+                <button onClick={() => setPendingCsvRows(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {csvValidationErrors.length > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 rounded-xl text-xs text-amber-800 dark:text-amber-400 space-y-1">
+                  <span className="font-bold">Notice: Some rows were skipped due to formatting errors:</span>
+                  <ul className="list-disc pl-4 text-[11px]">
+                    {csvValidationErrors.slice(0, 3).map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                    {csvValidationErrors.length > 3 && <li>...and {csvValidationErrors.length - 3} more</li>}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800 font-bold uppercase text-[10px] text-slate-500">
+                    <tr>
+                      <th className="py-2 px-3">Date</th>
+                      <th className="py-2 px-3">Description</th>
+                      <th className="py-2 px-3">Category</th>
+                      <th className="py-2 px-3">Type</th>
+                      <th className="py-2 px-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {pendingCsvRows.slice(0, 20).map((r, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-2 px-3 font-mono text-slate-400">{r.date}</td>
+                        <td className="py-2 px-3 font-medium text-slate-800 dark:text-slate-200">{r.description}</td>
+                        <td className="py-2 px-3 text-slate-500">{r.category}</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            r.type === 'income' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30' : 'text-rose-600 bg-rose-50 dark:bg-rose-950/30'
+                          }`}>
+                            {r.type}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          {formatCurrency(r.amount || 0, profile.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setPendingCsvRows(null)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeCsvImport}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors"
+                >
+                  Import {pendingCsvRows.length} Transactions
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Danger Zone: Reset & Clean */}
+      <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Ledger Maintenance & Reset</h3>
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => {
-              if (confirm('Re-seeding will reload realistic business data. Proceed?')) {
-                onResetToDemo();
-                triggerMsg('Database restored to original interactive demo rows.', 'success');
-              }
-            }}
-            className="py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 border border-slate-250 dark:border-slate-800 pointer-events-auto"
+            type="button"
+            onClick={() => setMaintenanceAction('demo')}
+            className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-colors pointer-events-auto"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Repopulate Demo Rows</span>
+            <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
+            <span>Load Realistic Starter Sample Data</span>
           </button>
 
           <button
-            onClick={() => {
-              if (confirm('This will wipe all data and relaunch the Setup Wizard. Proceed?')) {
-                onResetApplication?.();
-              }
-            }}
-            className="py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-blue-600/10 pointer-events-auto shadow-sm"
-          >
-            <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
-            <span>Reset & Relaunch Setup Wizard</span>
-          </button>
-
-          <button
-            onClick={() => {
-              if (confirm('CRITICAL ACTION: This wipes ALL custom transactions, receipts, and profiles permanently. Proceed?')) {
-                onClearAll();
-                triggerMsg('Clean database initialized. All local history purged.', 'info');
-              }
-            }}
-            className="py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm shadow-rose-600/15 pointer-events-auto"
+            type="button"
+            onClick={() => setMaintenanceAction('clear')}
+            className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-1.5 transition-colors pointer-events-auto"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Wipe Local History database</span>
+            <span>Clear All Transactions</span>
           </button>
         </div>
       </div>
+
+      {/* In-App Confirmation Modal for Maintenance Actions */}
+      <AnimatePresence>
+        {maintenanceAction && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
+            >
+              <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400">
+                <div className={`p-3 rounded-2xl ${maintenanceAction === 'clear' ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600' : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600'}`}>
+                  {maintenanceAction === 'clear' ? <AlertTriangle className="w-6 h-6" /> : <RefreshCw className="w-6 h-6" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {maintenanceAction === 'clear' ? 'Clear All Transactions?' : 'Load Sample Data?'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {maintenanceAction === 'clear' ? 'This removes existing transactions from local storage.' : 'Populates the ledger with realistic small business starter data.'}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {maintenanceAction === 'clear' ? (
+                  <>You can export a JSON or CSV backup before proceeding. Are you sure you want to delete all {transactions.length} transactions?</>
+                ) : (
+                  <>This will load sample income and expense records so you can test features and charts. Are you sure you want to proceed?</>
+                )}
+              </p>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setMaintenanceAction(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (maintenanceAction === 'clear') {
+                      onClearAll();
+                    } else if (maintenanceAction === 'demo') {
+                      onResetToDemo();
+                    }
+                    setMaintenanceAction(null);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-colors ${
+                    maintenanceAction === 'clear' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {maintenanceAction === 'clear' ? 'Yes, Clear All' : 'Load Sample Data'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };

@@ -1,10 +1,10 @@
 import { Transaction, Category, UserProfile } from '../types';
 
 export const DEFAULT_CURRENCIES = [
+  { code: 'INR', symbol: '₹', label: 'Indian Rupee (₹)' },
   { code: 'USD', symbol: '$', label: 'US Dollar ($)' },
   { code: 'EUR', symbol: '€', label: 'Euro (€)' },
   { code: 'GBP', symbol: '£', label: 'British Pound (£)' },
-  { code: 'INR', symbol: '₹', label: 'Indian Rupee (₹)' },
   { code: 'JPY', symbol: '¥', label: 'Japanese Yen (¥)' },
   { code: 'AUD', symbol: 'A$', label: 'Australian Dollar (A$)' },
   { code: 'CAD', symbol: 'C$', label: 'Canadian Dollar (C$)' },
@@ -37,11 +37,15 @@ export const DEFAULT_CATEGORIES: Category[] = [
 ];
 
 export const DEFAULT_PROFILE: UserProfile = {
-  businessName: 'Apex Advisory Services',
-  ownerName: 'Sarah Jenkins',
-  currency: 'USD',
-  email: 'finance@apex-advisory.com',
-  taxRate: 15,
+  businessName: 'Business Workspace',
+  ownerName: 'Finance Manager',
+  currency: 'INR',
+  email: 'finance@business.local',
+  taxRate: 18,
+  businessType: 'Small Business / Freelance',
+  financialYearStart: 'April',
+  dateFormatPreference: 'DD-MM-YYYY',
+  numberFormatPreference: 'en-IN',
 };
 
 // Generates highly realistic starting transactions for demonstration
@@ -320,14 +324,36 @@ export const compressImage = (base64Str: string, maxWidth = 400, maxHeight = 400
 };
 
 // Currency Formatter
-export const formatCurrency = (val: number, currencyCode: string = 'USD', numberFormatPreference?: string): string => {
-  const currencyObj = DEFAULT_CURRENCIES.find((c) => c.code === currencyCode) || DEFAULT_CURRENCIES[0];
-  const locale = numberFormatPreference || 'en-US';
+export const formatCurrency = (val: number, currencyCode: string = 'INR', numberFormatPreference?: string): string => {
+  const currencyObj = DEFAULT_CURRENCIES.find((c) => c.code === currencyCode) || {
+    code: currencyCode,
+    symbol: currencyCode === 'INR' ? '₹' : currencyCode === 'USD' ? '$' : currencyCode === 'EUR' ? '€' : currencyCode === 'GBP' ? '£' : currencyCode,
+    label: currencyCode,
+  };
+  // Default to en-IN when INR is selected, otherwise en-US
+  const locale = numberFormatPreference || (currencyCode === 'INR' ? 'en-IN' : 'en-US');
   const formatted = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(val);
   return `${currencyObj.symbol}${formatted}`;
+};
+
+// Shorthand formatter for Indian Lakhs and Crores
+export const formatIndianLakhsCrores = (val: number, currencyCode: string = 'INR'): string => {
+  const abs = Math.abs(val);
+  const sign = val < 0 ? '-' : '';
+  const currencyObj = DEFAULT_CURRENCIES.find((c) => c.code === currencyCode) || { symbol: '₹' };
+  const sym = currencyObj.symbol;
+
+  if (abs >= 10000000) {
+    return `${sign}${sym}${(abs / 10000000).toFixed(2)} Cr`;
+  } else if (abs >= 100000) {
+    return `${sign}${sym}${(abs / 100000).toFixed(2)} L`;
+  } else if (abs >= 1000) {
+    return `${sign}${sym}${(abs / 1000).toFixed(1)}k`;
+  }
+  return formatCurrency(val, currencyCode, 'en-IN');
 };
 
 // Date Formatter
@@ -341,18 +367,22 @@ export const formatDate = (dateStr: string, dateFormatPreference: string = 'YYYY
   return `${year}-${month}-${day}`; // default YYYY-MM-DD
 };
 
-// CSV Export Builder
+// CSV Export Builder with comprehensive columns
 export const exportToCSV = (transactions: Transaction[], filename = 'business_transactions.csv') => {
-  const headers = ['ID', 'Type', 'Category', 'Amount', 'Date', 'Description', 'Recurring', 'Period'];
+  const headers = ['ID', 'Type', 'Category', 'Amount', 'Currency', 'Date', 'Description', 'Project', 'Account', 'Payment Method', 'Recurring', 'Notes'];
   const rows = transactions.map((t) => [
     t.id,
     t.type.toUpperCase(),
     t.category,
     t.amount.toString(),
+    t.currency || 'INR',
     t.date,
-    t.description.replace(/"/g, '""'), // Escape double quotes
+    t.description.replace(/"/g, '""'),
+    (t.project || '').replace(/"/g, '""'),
+    (t.account || '').replace(/"/g, '""'),
+    (t.paymentMethod || '').replace(/"/g, '""'),
     t.isRecurring ? 'YES' : 'NO',
-    t.recurrencePeriod,
+    (t.notes || '').replace(/"/g, '""'),
   ]);
 
   const csvContent =
@@ -371,7 +401,7 @@ export const exportToCSV = (transactions: Transaction[], filename = 'business_tr
 // CSV Export for Excel-style compatibility
 export const exportToExcelCSV = (transactions: Transaction[], filename = 'business_transactions_excel.csv') => {
   // Excel expects UTF-8 BOM byte order mark to parse characters and commas perfectly
-  const headers = ['ID', 'Type', 'Category', 'Amount', 'Date', 'Description', 'Recurring', 'Period'];
+  const headers = ['ID', 'Type', 'Category', 'Amount', 'Currency', 'Date', 'Description', 'Project', 'Account', 'Payment Method', 'Recurring', 'Notes'];
   const csvRows = [headers.join(',')];
 
   transactions.forEach((t) => {
@@ -380,10 +410,14 @@ export const exportToExcelCSV = (transactions: Transaction[], filename = 'busine
       t.type.toUpperCase(),
       t.category,
       t.amount,
+      t.currency || 'INR',
       t.date,
       `"${t.description.replace(/"/g, '""')}"`,
+      `"${(t.project || '').replace(/"/g, '""')}"`,
+      `"${(t.account || '').replace(/"/g, '""')}"`,
+      `"${(t.paymentMethod || '').replace(/"/g, '""')}"`,
       t.isRecurring ? 'YES' : 'NO',
-      t.recurrencePeriod,
+      `"${(t.notes || '').replace(/"/g, '""')}"`,
     ];
     csvRows.push(row.join(','));
   });

@@ -26,25 +26,30 @@ export const HelpSupportView: React.FC<HelpSupportViewProps> = ({ onBack }) => {
     if (!ticketName.trim() || !ticketEmail.trim() || !ticketMessage.trim()) return;
 
     setSubmitting(true);
-    // Simulate support ticket creation
-    setTimeout(() => {
-      setSubmitting(false);
-      setSubmitSuccess(true);
-      setTicketName('');
-      setTicketEmail('');
-      setTicketMessage('');
-      setTimeout(() => setSubmitSuccess(false), 5000);
-    }, 1500);
+    // Real email dispatch via standard desktop mailto protocol
+    const mailSubject = `[${ticketSubject}] Support Request from ${ticketName.trim()}`;
+    const mailBody = `Name: ${ticketName.trim()}\nEmail: ${ticketEmail.trim()}\nSubject: ${ticketSubject}\n\nDetails:\n${ticketMessage.trim()}`;
+    const mailtoUrl = `mailto:support@businessexpensetracker.app?subject=${encodeURIComponent(mailSubject)}&body=${encodeURIComponent(mailBody)}`;
+
+    try {
+      window.location.href = mailtoUrl;
+    } catch {
+      // Fallback if mailto fails
+    }
+
+    setSubmitting(false);
+    setSubmitSuccess(true);
+    setTimeout(() => setSubmitSuccess(false), 8000);
   };
 
   const faqItems = [
     {
       q: 'Where actually is my financial transaction data archived?',
-      a: 'Your financial information is cached 100% locally inside your web browser’s sandboxed database storage. It does not automatically synchronize to remote servers, safeguarding your absolute business secrecy. We do not transmit or sell any records.',
+      a: 'Your financial information is stored 100% locally inside your web browser’s sandboxed database storage (IndexedDB). It does not automatically synchronize to remote servers, safeguarding your absolute business privacy. We do not transmit or sell any records.',
     },
     {
       q: 'How do I transfer my business logs over to a different PC?',
-      a: 'Easily execute this inside your browser: navigate to the "Backup & Restore" module, choose "Export Sandbox Database", and download your encrypted JSON file. On your secondary computer or browser window, navigate back to the same module and click "Import Data File" to complete your migration within seconds.',
+      a: 'Easily execute this inside your browser: navigate to the "Backup & Restore" module, choose "Export Sandbox Database", and download your standard JSON backup file. On your secondary computer or browser window, navigate back to the same module and click "Import Data File" to complete your migration within seconds.',
     },
     {
       q: 'How does the free transaction constraint operate?',
@@ -143,8 +148,8 @@ export const HelpSupportView: React.FC<HelpSupportViewProps> = ({ onBack }) => {
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-400 rounded-2xl flex gap-2 items-start text-[11px] animate-fade-in">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <p className="font-bold">Ticket Submitted successfully!</p>
-                  <p className="opacity-80">Check your email client shortly for our official follow-up link.</p>
+                  <p className="font-bold">Inquiry prepared!</p>
+                  <p className="opacity-80">Your default email application has opened with your inquiry pre-filled. You can also contact us directly at <span className="font-mono font-bold">support@businessexpensetracker.app</span>.</p>
                 </div>
               </div>
             )}

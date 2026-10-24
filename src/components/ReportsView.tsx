@@ -10,10 +10,13 @@ import {
   ArrowDownRight, 
   Calendar,
   Layers3,
-  CalendarDays
+  Tag,
+  Building,
+  Info
 } from 'lucide-react';
 import { Transaction, UserProfile } from '../types';
 import { formatCurrency, exportToCSV, exportToExcelCSV } from '../utils/financeUtils';
+import { calculateFinancials, getFinancialYearDates } from '../utils/financeCalculations';
 
 interface ReportsViewProps {
   transactions: Transaction[];
@@ -30,6 +33,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 }) => {
   const [selectedYear, setSelectedYear] = useState<string>('All');
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
+  const [selectedProject, setSelectedProject] = useState<string>('All');
+  const [selectedAccount, setSelectedAccount] = useState<string>('All');
+
+  const fyInfo = getFinancialYearDates(new Date(), profile.financialYearStart || 'April');
 
   const monthsList = [
     { value: '01', label: 'January' },
@@ -50,46 +57,49 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const yearsList = Array.from(
     new Set<string>(
       transactions
-        .map((tx) => {
-          if (!tx.date) return '';
-          return tx.date.split('-')[0];
-        })
+        .map((tx) => (tx.date ? tx.date.split('-')[0] : ''))
         .filter((y) => y !== '')
     )
   ).sort((a, b) => b.localeCompare(a));
 
-  // Filtering transactions based on year and month dropdown selections
+  // Extract unique project and account tags
+  const projectsList = Array.from(
+    new Set<string>(
+      transactions
+        .map((tx) => (tx.project && tx.project.trim() ? tx.project.trim() : ''))
+        .filter((p) => p !== '')
+    )
+  );
+
+  const accountsList = Array.from(
+    new Set<string>(
+      transactions
+        .map((tx) => (tx.account && tx.account.trim() ? tx.account.trim() : ''))
+        .filter((a) => a !== '')
+    )
+  );
+
+  // Filtering transactions
   const filteredTxs = transactions.filter((tx) => {
     if (!tx.date) return false;
     const [year, month] = tx.date.split('-');
     
-    const matchesYear = selectedYear === 'All' || year === selectedYear;
+    const matchesYear = 
+      selectedYear === 'All' 
+        ? true 
+        : selectedYear === 'FY' 
+        ? (tx.date >= fyInfo.startDate && tx.date <= fyInfo.endDate) 
+        : year === selectedYear;
+
     const matchesMonth = selectedMonth === 'All' || month === selectedMonth;
-    return matchesYear && matchesMonth;
+    const matchesProject = selectedProject === 'All' || (tx.project || 'Unassigned') === selectedProject;
+    const matchesAccount = selectedAccount === 'All' || (tx.account || 'General Account') === selectedAccount;
+    
+    return matchesYear && matchesMonth && matchesProject && matchesAccount;
   });
 
-  // Calculate totals
-  const incomeTxs = filteredTxs.filter((t) => t.type === 'income');
-  const expenseTxs = filteredTxs.filter((t) => t.type === 'expense');
-
-  const totalIncome = incomeTxs.reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
-  const grossProfit = totalIncome - totalExpense;
-
-  // Professional Tax Reserve
-  const estimatedTax = Math.max(0, grossProfit * (profile.taxRate / 100));
-  const netEarnings = grossProfit - estimatedTax;
-
-  // Category aggregations for P&L presentation
-  const incomeGrouped: Record<string, number> = {};
-  const expenseGrouped: Record<string, number> = {};
-
-  incomeTxs.forEach((t) => {
-    incomeGrouped[t.category] = (incomeGrouped[t.category] || 0) + t.amount;
-  });
-  expenseTxs.forEach((t) => {
-    expenseGrouped[t.category] = (expenseGrouped[t.category] || 0) + t.amount;
-  });
+  // Calculate using single calculation layer
+  const financials = calculateFinancials(filteredTxs, profile.taxRate);
 
   const handleExportCSV = () => {
     const filename = `financial_ledger_${selectedYear}_${selectedMonth}.csv`;
@@ -97,19 +107,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   };
 
   const handleExportExcel = () => {
-    if (!isPremium) {
-      onUpgradeTrigger?.('Excel-compatible spreadsheet export is a Premium module.');
-      return;
-    }
     const filename = `financial_ledger_${selectedYear}_${selectedMonth}_excel.csv`;
     exportToExcelCSV(filteredTxs, filename);
   };
 
   const handleDownloadPDF = () => {
-    if (!isPremium) {
-      onUpgradeTrigger?.('Printable PDF financial reports are a Premium module.');
-      return;
-    }
     window.print();
   };
 
@@ -122,26 +124,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             Accounting Ledger
           </span>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-            Financial Ledger & P&L Statement
+            Financial Reports & P&L Statement
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-sans">
-            Review detailed Profit and Loss statements, apply tax margins, and download spreadsheet logs.
+            Review detailed Profit and Loss statements, project-level profitability, and export accounting records.
           </p>
         </div>
 
-        {/* Calendar Range Dropdowns and Export pipeline */}
-        <div className="flex items-center space-x-2.5 shrink-0 select-none">
+        {/* Filters and Export Controls */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0 select-none">
           {/* Year select */}
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
-            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-350 pointer-events-auto shadow-sm"
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-300 pointer-events-auto shadow-sm"
           >
             <option value="All">All Years</option>
+            <option value="FY">{fyInfo.yearTag} ({profile.financialYearStart || 'April'}–March)</option>
             {yearsList.map((yr) => (
-              <option key={yr} value={yr}>
-                Year {yr}
-              </option>
+              <option key={yr} value={yr}>Year {yr}</option>
             ))}
           </select>
 
@@ -149,13 +150,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-350 pointer-events-auto shadow-sm"
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-300 pointer-events-auto shadow-sm"
           >
             <option value="All">All Months</option>
             {monthsList.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+
+          {/* Project select */}
+          <select
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+            className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-300 pointer-events-auto shadow-sm"
+          >
+            <option value="All">All Projects</option>
+            {projectsList.map((p) => (
+              <option key={p} value={p}>Project: {p}</option>
             ))}
           </select>
 
@@ -163,49 +174,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <button
             onClick={handleExportCSV}
             disabled={filteredTxs.length === 0}
-            className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-750 disabled:opacity-40 rounded-xl text-xs font-semibold pointer-events-auto transition-colors shadow-sm"
+            className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 disabled:opacity-40 rounded-xl text-xs font-semibold pointer-events-auto transition-colors shadow-sm"
             title="Export standard CSV bookkeeping ledger"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span className="hidden sm:inline">Basic CSV</span>
+            <span>CSV Ledger</span>
           </button>
 
-          {/* Export Excel - Pro */}
+          {/* Export Excel - Free */}
           <button
             onClick={handleExportExcel}
             disabled={filteredTxs.length === 0}
-            className="flex items-center space-x-1 px-2.5 py-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-650 dark:text-blue-400 border border-blue-500/15 disabled:opacity-40 rounded-xl text-xs font-bold pointer-events-auto transition-colors shadow-sm"
+            className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 disabled:opacity-40 rounded-xl text-xs font-bold pointer-events-auto transition-colors shadow-sm"
             title="Export Excel formatted ledger spreadsheet"
           >
             <Download className="w-3.5 h-3.5 text-blue-500" />
-            <span className="hidden sm:inline">Excel Export</span>
-            {!isPremium && <span className="text-[9px] ml-0.5">🔒</span>}
+            <span>Excel</span>
           </button>
 
-          {/* Export PDF - Pro */}
+          {/* Export / Print PDF - Free */}
           <button
             onClick={handleDownloadPDF}
             disabled={filteredTxs.length === 0}
-            className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-605/10 hover:bg-emerald-650/20 text-emerald-650 dark:text-emerald-400 border border-emerald-500/15 disabled:opacity-40 rounded-xl text-xs font-bold pointer-events-auto transition-colors shadow-sm"
-            title="Print PDF standard financial reports"
+            className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 disabled:opacity-40 rounded-xl text-xs font-bold pointer-events-auto transition-colors shadow-sm"
+            title="Print or Save PDF financial statement"
           >
             <FileText className="w-3.5 h-3.5 text-emerald-500" />
-            <span className="hidden sm:inline">PDF Report</span>
-            {!isPremium && <span className="text-[9px] ml-0.5">🔒</span>}
+            <span>Print PDF</span>
           </button>
         </div>
       </div>
 
-      {/* Overview stats for selected range */}
+      {/* Overview KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Income Card */}
+        {/* Total Income */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Total Inflow Pool
+              Total Income
             </span>
-            <span className="text-lg font-bold font-mono text-slate-850 dark:text-slate-100 block">
-              {formatCurrency(totalIncome, profile.currency)}
+            <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 block">
+              {formatCurrency(financials.totalIncome, profile.currency, profile.numberFormatPreference)}
             </span>
           </div>
           <div className="bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl text-emerald-500">
@@ -213,14 +222,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
 
-        {/* Expenses Card */}
+        {/* Total Expenses */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Total Outflow Pool
+              Total Expenses
             </span>
-            <span className="text-lg font-bold font-mono text-slate-850 dark:text-slate-100 block">
-              {formatCurrency(totalExpense, profile.currency)}
+            <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 block">
+              {formatCurrency(financials.totalExpenses, profile.currency, profile.numberFormatPreference)}
             </span>
           </div>
           <div className="bg-rose-50 dark:bg-rose-950/40 p-2 rounded-xl text-rose-500">
@@ -228,31 +237,31 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
 
-        {/* Gross Profit */}
+        {/* Net Cash Movement / Operating Profit */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Operating Income (P/L)
+              Net Profit (Before Tax)
             </span>
             <span className={`text-lg font-bold font-mono block ${
-              grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-450' : 'text-rose-600'
+              financials.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
             }`}>
-              {formatCurrency(grossProfit, profile.currency)}
+              {formatCurrency(financials.netProfit, profile.currency, profile.numberFormatPreference)}
             </span>
           </div>
-          <div className="bg-blue-50 dark:bg-blue-950/45 p-2 rounded-xl text-blue-500">
+          <div className="bg-blue-50 dark:bg-blue-950/40 p-2 rounded-xl text-blue-500">
             <Layers className="w-4 h-4" />
           </div>
         </div>
 
-        {/* Net Cash Pool */}
+        {/* Estimated Tax Reserve */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Post-Tax Retainer reserves ({profile.taxRate}%)
+              Est. Tax Reserve ({profile.taxRate}%)
             </span>
-            <span className="text-lg font-bold font-mono text-slate-850 dark:text-slate-100 block">
-              {formatCurrency(netEarnings, profile.currency)}
+            <span className="text-lg font-bold font-mono text-slate-800 dark:text-slate-100 block">
+              {formatCurrency(financials.estimatedTaxReserve, profile.currency, profile.numberFormatPreference)}
             </span>
           </div>
           <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-xl text-amber-500">
@@ -261,162 +270,195 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </div>
       </div>
 
-      {/* Double Column Grid: Left P&L statement, Right Consolidated Transactions */}
+      {/* Accounting Compliance Transparency Notice */}
+      <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+        <Info className="w-4 h-4 shrink-0 text-slate-400" />
+        <span>
+          <strong>Accounting Note:</strong> Cash-basis net cash movement. Estimated tax reserve is calculated using your user-defined parameter of {profile.taxRate}% on positive operating margin for budgeting guidance; this report is not a statutory or certified tax return.
+        </span>
+      </div>
+
+      {/* P&L Breakdown & Project Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left: Profit and Loss Statement */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm lg:col-span-5">
-          <div className="border-b border-slate-100 dark:border-slate-800/50 pb-3 mb-4">
+        
+        {/* Left: Profit & Loss Statement */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm lg:col-span-6 space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center space-x-2">
               <Layers3 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <span>Profit & Loss Statement (P&L)</span>
             </h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-              Refined performance report: {selectedMonth !== 'All' ? `Month: ${selectedMonth}` : 'Full year limits'}{' '}
+              Period: {selectedMonth !== 'All' ? `Month ${selectedMonth}` : 'All Months'}{' '}
               {selectedYear !== 'All' ? `(${selectedYear})` : ''}
             </p>
           </div>
 
-          <div className="space-y-4">
-            {/* INCOMING STREAMS */}
-            <div>
-              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 block uppercase tracking-wider mb-2">
-                Revenue streams
-              </span>
-              <div className="space-y-1.5 pl-2 border-l border-emerald-500/30">
-                {Object.entries(incomeGrouped).map(([catName, amt]) => (
-                  <div key={catName} className="flex items-center justify-between text-xs py-1">
-                    <span className="text-slate-600 dark:text-slate-400 font-medium">{catName}</span>
-                    <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">
-                      {formatCurrency(amt, profile.currency)}
-                    </span>
-                  </div>
-                ))}
-                {Object.keys(incomeGrouped).length === 0 && (
-                  <span className="text-[11px] text-slate-400 block py-1">No revenue logged for selection.</span>
-                )}
-                <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-300">
-                  <span>Gross Operating Income</span>
-                  <span className="font-mono text-emerald-600">
-                    {formatCurrency(totalIncome, profile.currency)}
+          {/* Income Categories */}
+          <div className="space-y-2">
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">
+              Income Streams
+            </span>
+            <div className="space-y-1.5 pl-2 border-l-2 border-emerald-500/30">
+              {financials.incomeCategories.map((cat) => (
+                <div key={cat.category} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">{cat.category}</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">
+                    {formatCurrency(cat.amount, profile.currency, profile.numberFormatPreference)}
                   </span>
                 </div>
-              </div>
-            </div>
-
-            {/* OPERATING COST BREAKDOWNS */}
-            <div>
-              <span className="text-[10px] font-bold text-rose-500 block uppercase tracking-wider mb-2">
-                Operational Expenses
-              </span>
-              <div className="space-y-1.5 pl-2 border-l border-rose-500/30">
-                {Object.entries(expenseGrouped).map(([catName, amt]) => (
-                  <div key={catName} className="flex items-center justify-between text-xs py-1">
-                    <span className="text-slate-600 dark:text-slate-400 font-medium">{catName}</span>
-                    <span className="font-mono text-slate-850 dark:text-slate-250 font-semibold">
-                      {formatCurrency(amt, profile.currency)}
-                    </span>
-                  </div>
-                ))}
-                {Object.keys(expenseGrouped).length === 0 && (
-                  <span className="text-[11px] text-slate-400 block py-1">No expenses logged for selection.</span>
-                )}
-                <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-300">
-                  <span>Total Operating Cost</span>
-                  <span className="font-mono text-rose-500">
-                    {formatCurrency(totalExpense, profile.currency)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* MARGIN CALCULATIONS OVERVIEW */}
-            <div className="pt-3 border-t border-slate-150 dark:border-slate-800 space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-850 dark:text-slate-100">
-                <span>Net Operating Profit</span>
-                <span className={`font-mono ${grossProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                  {formatCurrency(grossProfit, profile.currency)}
+              ))}
+              {financials.incomeCategories.length === 0 && (
+                <span className="text-[11px] text-slate-400 block py-1">No income records in selection.</span>
+              )}
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-300">
+                <span>Total Income</span>
+                <span className="font-mono text-emerald-600">
+                  {formatCurrency(financials.totalIncome, profile.currency, profile.numberFormatPreference)}
                 </span>
               </div>
+            </div>
+          </div>
 
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Estimated Tax Allocated ({profile.taxRate}%)</span>
-                <span className="font-mono">{formatCurrency(estimatedTax, profile.currency)}</span>
+          {/* Expense Categories */}
+          <div className="space-y-2 pt-2">
+            <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider block">
+              Operating Expenses
+            </span>
+            <div className="space-y-1.5 pl-2 border-l-2 border-rose-500/30">
+              {financials.expenseCategories.map((cat) => (
+                <div key={cat.category} className="flex items-center justify-between text-xs py-0.5">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">{cat.category}</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">
+                    {formatCurrency(cat.amount, profile.currency, profile.numberFormatPreference)}
+                  </span>
+                </div>
+              ))}
+              {financials.expenseCategories.length === 0 && (
+                <span className="text-[11px] text-slate-400 block py-1">No expense records in selection.</span>
+              )}
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-300">
+                <span>Total Expenses</span>
+                <span className="font-mono text-rose-500">
+                  {formatCurrency(financials.totalExpenses, profile.currency, profile.numberFormatPreference)}
+                </span>
               </div>
+            </div>
+          </div>
 
-              <div className="flex items-center justify-between text-xs font-bold text-blue-600 dark:text-blue-400 pt-1.5 border-t border-dashed border-slate-200 dark:border-slate-850">
-                <span>Retained Business Earnings</span>
-                <span className="font-mono">{formatCurrency(netEarnings, profile.currency)}</span>
-              </div>
+          {/* Net Margin Totals */}
+          <div className="pt-3 border-t border-slate-150 dark:border-slate-800 space-y-2 text-xs">
+            <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-100">
+              <span>Net Operating Profit</span>
+              <span className={`font-mono ${financials.netProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                {formatCurrency(financials.netProfit, profile.currency, profile.numberFormatPreference)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-500">
+              <span>Estimated Tax Reserve ({profile.taxRate}%)</span>
+              <span className="font-mono">
+                {formatCurrency(financials.estimatedTaxReserve, profile.currency, profile.numberFormatPreference)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between font-bold text-blue-600 dark:text-blue-400 pt-1.5 border-t border-dashed border-slate-200 dark:border-slate-800">
+              <span>Net Retained Earnings</span>
+              <span className="font-mono">
+                {formatCurrency(financials.netIncomeAfterTaxEstimate, profile.currency, profile.numberFormatPreference)}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Right: Consolidated transaction list */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm lg:col-span-7 overflow-hidden">
-          <div className="pb-3 border-b border-slate-100 dark:border-slate-800/50 mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center space-x-2">
-                <CalendarDays className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>Unified Cashflow Logs ({filteredTxs.length})</span>
-              </h3>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                Combined journals of all active operations
-              </p>
+        {/* Right: Project-level Breakdown */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm lg:col-span-6 space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center space-x-2">
+              <Tag className="w-4 h-4 text-indigo-500" />
+              <span>Project & Client Profitability</span>
+            </h3>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+              Net contributions tracked by individual project/client tags without double-counting.
+            </p>
+          </div>
+
+          {financials.projectBreakdown.length === 0 ? (
+            <p className="text-xs text-slate-400 py-6 text-center">No transactions with project tags.</p>
+          ) : (
+            <div className="space-y-3">
+              {financials.projectBreakdown.map((proj) => (
+                <div key={proj.project} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">{proj.project}</span>
+                    <span className={`font-mono font-bold ${proj.net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      Net: {formatCurrency(proj.net, profile.currency, profile.numberFormatPreference)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-500">
+                    <div>Income: +{formatCurrency(proj.income, profile.currency, profile.numberFormatPreference)}</div>
+                    <div>Expense: -{formatCurrency(proj.expense, profile.currency, profile.numberFormatPreference)}</div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
+        </div>
 
-          <div className="overflow-y-auto max-h-[380px] pr-1">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800/50 text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                  <th className="py-2">Date</th>
-                  <th className="py-2">Memo Description</th>
-                  <th className="py-2 text-center">Type</th>
-                  <th className="py-2 text-right">Credit / Debit</th>
+      </div>
+
+      {/* Transaction Ledger Table */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+            Consolidated Ledger ({filteredTxs.length} records)
+          </h3>
+          <span className="text-xs text-slate-400">Chronological transaction record</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th className="py-2.5 px-4">Date</th>
+                <th className="py-2.5 px-4">Description</th>
+                <th className="py-2.5 px-4">Category</th>
+                <th className="py-2.5 px-4">Project</th>
+                <th className="py-2.5 px-4">Payment</th>
+                <th className="py-2.5 px-4 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredTxs.map((t) => (
+                <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                  <td className="py-2.5 px-4 font-mono text-slate-400 whitespace-nowrap">{t.date}</td>
+                  <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-slate-200">{t.description}</td>
+                  <td className="py-2.5 px-4">
+                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                      {t.category}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-4 text-slate-400">{t.project || '–'}</td>
+                  <td className="py-2.5 px-4 text-slate-400">{t.paymentMethod || 'Standard'}</td>
+                  <td className={`py-2.5 px-4 text-right font-mono font-bold whitespace-nowrap ${
+                    t.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'
+                  }`}>
+                    {t.type === 'income' ? '+' : '-'}
+                    {formatCurrency(t.amount, profile.currency, profile.numberFormatPreference)}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100/50 dark:divide-slate-800/30 text-[11px]">
-                {filteredTxs.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                    <td className="py-2 text-slate-500 dark:text-slate-400 font-mono whitespace-nowrap">
-                      {t.date}
-                    </td>
-                    <td className="py-2">
-                      <div className="min-w-[100px] max-w-[200px]">
-                        <p className="text-slate-850 dark:text-slate-300 font-medium truncate">{t.description}</p>
-                        <p className="text-[9px] text-slate-400">{t.category}</p>
-                      </div>
-                    </td>
-                    <td className="py-2 text-center">
-                      <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wide ${
-                        t.type === 'income' 
-                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-500' 
-                          : 'bg-rose-50 dark:bg-rose-950/30 text-rose-500'
-                      }`}>
-                        {t.type === 'income' ? 'In' : 'Out'}
-                      </span>
-                    </td>
-                    <td className={`py-2 text-right font-bold font-mono whitespace-nowrap ${
-                      t.type === 'income' ? 'text-emerald-600 dark:text-emerald-450' : 'text-slate-700 dark:text-slate-300'
-                    }`}>
-                      {t.type === 'income' ? '+' : '-'}
-                      {formatCurrency(t.amount, profile.currency)}
-                    </td>
-                  </tr>
-                ))}
-
-                {filteredTxs.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-12 text-center text-slate-400 dark:text-slate-500">
-                      No matching logs recorded for the selected timeline.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {filteredTxs.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                    No transactions match the selected report filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
+
     </div>
   );
 };

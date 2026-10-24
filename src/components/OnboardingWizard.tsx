@@ -24,11 +24,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
   // Form states
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
-  const [businessType, setBusinessType] = useState('Freelancer');
-  const [currency, setCurrency] = useState('USD');
-  const [financialYearStart, setFinancialYearStart] = useState('January');
-  const [dateFormatPreference, setDateFormatPreference] = useState('YYYY-MM-DD');
-  const [numberFormatPreference, setNumberFormatPreference] = useState('en-US');
+  const [businessType, setBusinessType] = useState('Small Business / Freelance');
+  const [currency, setCurrency] = useState('INR');
+  const [financialYearStart, setFinancialYearStart] = useState('April');
+  const [dateFormatPreference, setDateFormatPreference] = useState('DD-MM-YYYY');
+  const [numberFormatPreference, setNumberFormatPreference] = useState('en-IN');
 
   const [errors, setErrors] = useState<string>('');
 
@@ -54,15 +54,31 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
   const handleFinish = () => {
     const defaultProfile: UserProfile = {
-      businessName: businessName.trim(),
-      ownerName: ownerName.trim(),
+      businessName: businessName.trim() || 'Business Workspace',
+      ownerName: ownerName.trim() || 'Finance Manager',
       currency,
-      email: `${ownerName.trim().toLowerCase().replace(/\s+/g, '')}@${businessName.trim().toLowerCase().replace(/\s+/g, '') || 'company'}.com`,
-      taxRate: 0,
+      email: `${ownerName.trim().toLowerCase().replace(/\s+/g, '') || 'finance'}@${businessName.trim().toLowerCase().replace(/\s+/g, '') || 'business'}.local`,
+      taxRate: 18,
       businessType,
       financialYearStart,
       dateFormatPreference,
       numberFormatPreference,
+      onboarded: true
+    };
+    onComplete(defaultProfile);
+  };
+
+  const handleQuickSkip = () => {
+    const defaultProfile: UserProfile = {
+      businessName: businessName.trim() || 'Business Workspace',
+      ownerName: ownerName.trim() || 'Finance Manager',
+      currency: currency || 'INR',
+      email: 'finance@business.local',
+      taxRate: 18,
+      businessType: businessType || 'Small Business / Freelance',
+      financialYearStart: financialYearStart || 'April',
+      dateFormatPreference: dateFormatPreference || 'DD-MM-YYYY',
+      numberFormatPreference: numberFormatPreference || 'en-IN',
       onboarded: true
     };
     onComplete(defaultProfile);
@@ -76,7 +92,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     { code: 'AED', symbol: 'د.إ', label: 'UAE Dirham (د.إ)' },
     { code: 'CAD', symbol: '$', label: 'Canadian Dollar (C$)' },
     { code: 'AUD', symbol: '$', label: 'Australian Dollar (A$)' }
-  ].filter((value, index, self) => self.findIndex(t => t.code === value.code) === index); // unique
+  ].filter((value, index, self) => self.findIndex(t => t.code === value.code) === index);
 
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -89,18 +105,27 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col transition-all duration-300"
+        className="w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col transition-all duration-300"
       >
         {/* Top visual stepper header */}
         <div className="bg-[#0f172a] p-6 text-white relative">
-          <div className="absolute top-4 right-4 bg-blue-600/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold text-blue-400 flex items-center gap-1">
-            <Sparkles className="w-3 h-3" /> Step {step} of 5
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-blue-600/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold text-blue-400 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Step {step} of 5
+            </div>
+            <button
+              type="button"
+              onClick={handleQuickSkip}
+              className="text-xs text-slate-400 hover:text-white transition-colors underline pointer-events-auto"
+            >
+              Skip Setup (Quick Start)
+            </button>
           </div>
-          <h2 className="text-xl font-bold tracking-tight">Setup Corporate Ledger</h2>
-          <p className="text-[11px] text-slate-400 mt-1">Configure your workspace defaults to activate financial intelligence modules.</p>
+          <h2 className="text-xl font-bold tracking-tight">Setup Your Financial Workspace</h2>
+          <p className="text-[11px] text-slate-400 mt-1">Configure your workspace defaults to activate local ledger and reporting modules.</p>
           
           {/* Progress bar */}
-          <div className="w-full bg-slate-800 h-1.5 rounded-full mt-5 overflow-hidden">
+          <div className="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
             <motion.div 
               className="bg-blue-500 h-full"
               initial={{ width: '20%' }}
@@ -128,26 +153,57 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 exit={{ opacity: 0, x: -20 }}
                 className="space-y-4"
               >
-                <div className="text-center py-4">
-                  <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-3xl mx-auto mb-4 shadow-xl shadow-blue-500/20">
-                    A
+                <div className="text-center py-2">
+                  <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl mx-auto mb-3 shadow-xl shadow-blue-500/20">
+                    B
                   </div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    Welcome to Business Expense Tracker – Income & Expense Manager
+                    Welcome to Business Expense Tracker – Small Business
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm mx-auto leading-relaxed">
-                    Set up your business parameters to gain deep operational insights, tracking revenues, multiple currency costs, automated Profit & Loss statements, and runtimes runway.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-md mx-auto leading-relaxed">
+                    Track your income and expenses, understand your cash flow, and keep control of your data.
                   </p>
                 </div>
                 
-                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-4 text-xs space-y-2 text-slate-600 dark:text-slate-450">
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-4 text-xs space-y-3 text-slate-600 dark:text-slate-300">
                   <div className="flex items-start gap-2.5">
                     <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>100% Confidential Ledger:</strong> All transaction records are retained in your sandboxed browser space safely.</span>
+                    <div>
+                      <strong className="text-slate-800 dark:text-slate-100">Simple Add Income & Expense:</strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record transactions quickly with amount, date, category, and optional client tags or receipt attachments.</p>
+                    </div>
                   </div>
+
                   <div className="flex items-start gap-2.5">
                     <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>Multi-Currency Smart Tracker:</strong> Complete currency conversion calculations using adjustable exchange ratios.</span>
+                    <div>
+                      <strong className="text-slate-800 dark:text-slate-100">Categories & Project Tracking:</strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Organize spending by custom categories and tag client projects to monitor exact profitability.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-800 dark:text-slate-100">100% Offline-First Privacy:</strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Your financial records live securely in your device's IndexedDB. No mandatory login, and no silent cloud uploads.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-800 dark:text-slate-100">Free Backup & Data Portability:</strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Export complete JSON backups or Excel-compatible CSVs anytime. You never lose access to your data.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-800 dark:text-slate-100">Transparent Optional Pro:</strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Core tracking is always free. Optional Pro upgrades unlock multi-business entities, batch receipt OCR, and advanced BI analytics.</p>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -315,9 +371,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                       onChange={(e) => setNumberFormatPreference(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-xs outline-none text-slate-700 dark:text-slate-300 pointer-events-auto"
                     >
-                      <option value="en-US">1,234.56 – Standard (en-US)</option>
-                      <option value="de-DE">1.234,56 – European Dot (de-DE)</option>
-                      <option value="fr-FR">1 234,56 – European Space (fr-FR)</option>
+                      <option value="en-IN">1,50,000.00 – Indian Lakhs & Crores (en-IN)</option>
+                      <option value="en-US">150,000.00 – Standard US/International (en-US)</option>
+                      <option value="de-DE">150.000,00 – European Dot (de-DE)</option>
+                      <option value="fr-FR">150 000,00 – European Space (fr-FR)</option>
                     </select>
                   </div>
                 </div>
