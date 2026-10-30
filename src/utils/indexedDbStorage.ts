@@ -1,14 +1,16 @@
-import { Transaction, Category, UserProfile, RecurringBill } from '../types';
+import { Transaction, Category, UserProfile, RecurringBill, Client } from '../types';
 import { DEFAULT_CATEGORIES, DEFAULT_PROFILE, STORAGE_KEYS, getStarterTransactions } from './financeUtils';
+import { getStarterClients } from './clientUtils';
 
 const DB_NAME = 'BusinessExpenseTrackerDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface DBSchema {
   transactions: Transaction[];
   categories: Category[];
   profile: UserProfile;
   recurringBills: RecurringBill[];
+  clients: Client[];
 }
 
 /**
@@ -47,6 +49,11 @@ const openDB = (): Promise<IDBDatabase> => {
 
       if (!db.objectStoreNames.contains('receipts')) {
         db.createObjectStore('receipts', { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains('clients')) {
+        const clientStore = db.createObjectStore('clients', { keyPath: 'id' });
+        clientStore.createIndex('name', 'name', { unique: false });
       }
     };
 
@@ -106,14 +113,27 @@ const setAllInStore = <T>(storeName: string, items: T[]): Promise<void> => {
 export const loadDurableData = async (): Promise<DBSchema> => {
   try {
     // 1. Try loading from IndexedDB
-    const [txs, cats, bills, profiles] = await Promise.all([
+    const [txs, cats, bills, profiles, loadedClients] = await Promise.all([
       getAllFromStore<Transaction>('transactions').catch(() => []),
       getAllFromStore<Category>('categories').catch(() => []),
       getAllFromStore<RecurringBill>('recurring_bills').catch(() => []),
       getAllFromStore<{ id: string; profile: UserProfile }>('profiles').catch(() => []),
+      getAllFromStore<Client>('clients').catch(() => []),
     ]);
 
     const activeProfile = profiles.find((p) => p.id === 'current')?.profile;
+    let finalClients = loadedClients;
+
+    // Check localStorage fallback for clients
+    if (finalClients.length === 0) {
+      const storedClientsRaw = localStorage.getItem(STORAGE_KEYS.CLIENTS);
+      if (storedClientsRaw) {
+        try {
+          finalClients = JSON.parse(storedClientsRaw);
+          setAllInStore('clients', finalClients).catch(console.warn);
+        } catch (_) {}
+      }
+    }
 
     // 2. Migration Check: If IndexedDB is empty, migrate existing localStorage data safely
     if (txs.length === 0 && cats.length === 0 && !activeProfile) {
@@ -126,12 +146,14 @@ export const loadDurableData = async (): Promise<DBSchema> => {
         const migratedTxs: Transaction[] = storedTxsRaw ? JSON.parse(storedTxsRaw) : [];
         const migratedCats: Category[] = storedCatsRaw ? JSON.parse(storedCatsRaw) : DEFAULT_CATEGORIES;
         const migratedProf: UserProfile = storedProfRaw ? JSON.parse(storedProfRaw) : DEFAULT_PROFILE;
+        const starterClients = finalClients.length > 0 ? finalClients : getStarterClients();
 
         // Persist into IndexedDB
         await Promise.all([
           setAllInStore('transactions', migratedTxs).catch(console.warn),
           setAllInStore('categories', migratedCats).catch(console.warn),
           setAllInStore('profiles', [{ id: 'current', profile: migratedProf }]).catch(console.warn),
+          setAllInStore('clients', starterClients).catch(console.warn),
         ]);
 
         return {
@@ -139,8 +161,18 @@ export const loadDurableData = async (): Promise<DBSchema> => {
           categories: migratedCats,
           profile: migratedProf,
           recurringBills: [],
+          clients: starterClients,
         };
       }
+    }
+
+    // If transactions include starter demo data and no clients exist, seed starter clients
+    if (finalClients.length === 0 && txs.some((t) => t.id.startsWith('tx_starter_'))) {
+      finalClients = getStarterClients();
+      setAllInStore('clients', finalClients).catch(console.warn);
+      try {
+        localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(finalClients));
+      } catch (_) {}
     }
 
     // Return loaded data or sensible initialized state
@@ -149,6 +181,7 @@ export const loadDurableData = async (): Promise<DBSchema> => {
       categories: cats.length > 0 ? cats : DEFAULT_CATEGORIES,
       profile: activeProfile || DEFAULT_PROFILE,
       recurringBills: bills,
+      clients: finalClients,
     };
   } catch (err) {
     console.warn('[Storage Layer] IndexedDB encountered error; using localStorage fallback:', err);
@@ -156,12 +189,14 @@ export const loadDurableData = async (): Promise<DBSchema> => {
     const storedTxs = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
     const storedCats = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
     const storedProf = localStorage.getItem(STORAGE_KEYS.PROFILE);
+    const storedClients = localStorage.getItem(STORAGE_KEYS.CLIENTS);
 
     return {
       transactions: storedTxs ? JSON.parse(storedTxs) : [],
       categories: storedCats ? JSON.parse(storedCats) : DEFAULT_CATEGORIES,
       profile: storedProf ? JSON.parse(storedProf) : DEFAULT_PROFILE,
       recurringBills: [],
+      clients: storedClients ? JSON.parse(storedClients) : getStarterClients(),
     };
   }
 };
@@ -223,6 +258,21 @@ export const persistRecurringBills = async (bills: RecurringBill[]): Promise<voi
   } finally {
     try {
       localStorage.setItem('finance_app_recurring_bills', JSON.stringify(bills));
+    } catch (_) {}
+  }
+};
+
+/**
+ * Save clients durably into IndexedDB and keep localStorage backup mirror.
+ */
+export const persistClients = async (clients: Client[]): Promise<void> => {
+  try {
+    await setAllInStore('clients', clients);
+  } catch (err) {
+    console.warn('[Storage Layer] IndexedDB clients save failed:', err);
+  } finally {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
     } catch (_) {}
   }
 };

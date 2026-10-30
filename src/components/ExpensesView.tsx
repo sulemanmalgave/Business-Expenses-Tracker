@@ -12,23 +12,28 @@ import {
   HelpCircle,
   Eye,
   RefreshCw,
-  AlertCircle,
   Tag,
   CreditCard,
-  Building
+  Building,
+  Users,
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
-import { Transaction, Category, UserProfile, RecurrencePeriod } from '../types';
+import { Transaction, Category, UserProfile, RecurrencePeriod, Client } from '../types';
 import { DEFAULT_CURRENCIES, formatCurrency, compressImage } from '../utils/financeUtils';
 import { validateTransaction, roundMoney } from '../utils/financeCalculations';
+import { ClientSelector } from './ClientSelector';
 
 interface ExpensesViewProps {
   transactions: Transaction[];
   categories: Category[];
   profile: UserProfile;
+  clients?: Client[];
   onAddTransaction: (tx: Omit<Transaction, 'id'>) => void;
   onEditTransaction: (id: string, updated: Partial<Transaction>) => void;
   onDeleteTransaction: (id: string) => void;
   onAddCustomCategory: (name: string, type: 'income' | 'expense') => void;
+  onAddClient?: (client: Client) => void;
   isPremium?: boolean;
   onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
@@ -37,10 +42,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   transactions,
   categories,
   profile,
+  clients = [],
   onAddTransaction,
   onEditTransaction,
   onDeleteTransaction,
   onAddCustomCategory,
+  onAddClient,
   isPremium = false,
   onUpgradeTrigger,
 }) => {
@@ -69,6 +76,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const [paymentMethod, setPaymentMethod] = useState('Credit Card');
   const [account, setAccount] = useState('Operating Account');
   const [project, setProject] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedClientName, setSelectedClientName] = useState('');
   const [notes, setNotes] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrencePeriod, setRecurrencePeriod] = useState<RecurrencePeriod>('monthly');
@@ -91,8 +100,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const existingProjects = Array.from(
     new Set(
       transactions
-        .filter((t) => t.type === 'expense' && t.project && t.project.trim())
-        .map((t) => t.project!.trim())
+        .filter((t) => t.type === 'expense' && (t.clientName || t.project))
+        .map((t) => (t.clientName || t.project)!.trim())
     )
   );
 
@@ -108,9 +117,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     const matchesSearch = 
       t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.notes || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       t.category.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'All' || t.category === selectedCategory;
-    const matchesProject = selectedProject === 'All' || (t.project || 'Unassigned') === selectedProject;
+    const matchesProject = selectedProject === 'All' || (t.clientName || t.project || 'Unassigned') === selectedProject;
     const matchesMethod = selectedPaymentMethod === 'All' || (t.paymentMethod || 'Other') === selectedPaymentMethod;
     const matchesStartDate = !startDate || t.date >= startDate;
     const matchesEndDate = !endDate || t.date <= endDate;
@@ -158,6 +168,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     setPaymentMethod(tx.paymentMethod || 'Credit Card');
     setAccount(tx.account || 'Operating Account');
     setProject(tx.project || '');
+    setSelectedClientId(tx.clientId || '');
+    setSelectedClientName(tx.clientName || tx.project || '');
     setNotes(tx.notes || '');
     setIsRecurring(tx.isRecurring);
     setRecurrencePeriod(tx.recurrencePeriod);
@@ -178,6 +190,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     setPaymentMethod('Credit Card');
     setAccount('Operating Account');
     setProject('');
+    setSelectedClientId('');
+    setSelectedClientName('');
     setNotes('');
     setIsRecurring(false);
     setRecurrencePeriod('monthly');
@@ -235,7 +249,9 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       description: description.trim() || `Expense for ${chosenCat}`,
       paymentMethod,
       account,
-      project: project.trim() || undefined,
+      clientId: selectedClientId || undefined,
+      clientName: selectedClientName || undefined,
+      project: project.trim() || selectedClientName || undefined,
       notes: notes.trim() || undefined,
       isRecurring,
       recurrencePeriod: isRecurring ? recurrencePeriod : ('none' as const),
@@ -425,7 +441,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                     </span>
                   </td>
                   <td className="py-3 px-4 text-slate-500">
-                    {tx.project ? (
+                    {tx.clientName ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                        <Users className="w-3 h-3 shrink-0" />
+                        <span className="truncate max-w-[120px]">{tx.clientName}</span>
+                      </span>
+                    ) : tx.project ? (
                       <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400">
                         <Tag className="w-3 h-3" /> {tx.project}
                       </span>
@@ -609,6 +630,28 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                   </select>
                 </div>
 
+                {/* Optional Client Association */}
+                <ClientSelector
+                  clients={clients}
+                  selectedClientId={selectedClientId}
+                  selectedClientName={selectedClientName}
+                  onSelectClient={(client) => {
+                    if (client) {
+                      setSelectedClientId(client.id);
+                      setSelectedClientName(client.name);
+                      if (!project.trim()) {
+                        setProject(client.name);
+                      }
+                    } else {
+                      setSelectedClientId('');
+                      setSelectedClientName('');
+                    }
+                  }}
+                  onAddNewClient={onAddClient}
+                  label="Associated Client (Optional)"
+                  placeholder="None / General business expense"
+                />
+
                 {/* Project Tag & Account */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -658,6 +701,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                     <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                       <Paperclip className="w-3.5 h-3.5" />
                       <span>Receipt Attachment</span>
+                      {!isPremium && (
+                        <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                          <Sparkles className="w-2 h-2" />
+                          PRO
+                        </span>
+                      )}
                     </span>
                     {receiptBase64 && (
                       <button

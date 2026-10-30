@@ -1,129 +1,189 @@
-import { UserProfile, Transaction } from '../types';
+import { UserProfile } from '../types';
 
-export type SubscriptionPlanCode = 'free' | 'pro_monthly' | 'pro_yearly' | 'lifetime';
+export type SubscriptionPlanCode = 'free' | 'pro_monthly' | 'pro_yearly';
 
-export interface PlanDetails {
+export type BillingCountryCode = 'IN' | 'US' | 'GB' | 'EU' | 'CA' | 'AU' | 'GLOBAL';
+
+export interface PlanPricing {
+  amount: number;
+  currency: 'INR' | 'USD';
+  symbol: string;
+  interval: 'month' | 'year';
+  intervalLabel: string;
+  formatted: string;
+  equivalentMonthly?: number;
+  equivalentMonthlyFormatted?: string;
+  savingsPercent?: number;
+  provider: 'razorpay' | 'paypal';
+  configuredProductId: string;
+}
+
+export interface PlanMetadata {
   code: SubscriptionPlanCode;
   name: string;
-  priceUSD: number;
-  priceINR: number;
-  periodLabel: string;
+  tagline: string;
   features: string[];
 }
 
-export const SUBSCRIPTION_PLANS: Record<SubscriptionPlanCode, PlanDetails> = {
+export const PLAN_METADATA: Record<SubscriptionPlanCode, PlanMetadata> = {
   free: {
     code: 'free',
-    name: 'Free Starter Plan',
-    priceUSD: 0,
-    priceINR: 0,
-    periodLabel: 'forever',
+    name: 'Free Plan',
+    tagline: 'Essential day-to-day income and expense ledger for small businesses',
     features: [
-      'Up to 500 total transactions (income + expenses combined)',
-      'Interactive dashboard & Profit/Loss reports',
-      'Complete accounting ledger CSV & Excel export',
-      'Full JSON backup & restore without paywalls',
-      'Client invoice & estimate builder with print/PDF',
-      'Manage 1 business workspace',
+      'Income and expense tracking',
+      'Basic dashboard',
+      'Basic financial summaries',
+      'Basic categories',
+      'Client management',
+      'Basic transaction history',
+      'CSV export (always free)',
+      'Manual backup and restore (always free)',
     ],
   },
   pro_monthly: {
     code: 'pro_monthly',
-    name: 'Pro Monthly Business',
-    priceUSD: 1.99,
-    priceINR: 99,
-    periodLabel: 'month',
+    name: 'Pro Monthly',
+    tagline: 'Comprehensive financial reporting, automated statements & workflows',
     features: [
-      'Unlimited transaction ledger entries',
-      'Multiple independent business profiles',
-      'Batch receipt attachment ingest',
-      'Automated recurring bills & obligations',
-      'Advanced Business Intelligence analytics',
-      'Priority software updates',
+      'Everything in Free included',
+      'Advanced financial reports',
+      'Detailed PDF account statements',
+      'Monthly and custom-period income and expense statements',
+      'Client and project profitability reports',
+      'Batch receipt OCR',
+      'Recurring bills and cash-flow forecasting',
+      'Advanced analytics and report filters',
+      'Advanced invoice features',
     ],
   },
   pro_yearly: {
     code: 'pro_yearly',
-    name: 'Pro Yearly Enterprise',
-    priceUSD: 9.99,
-    priceINR: 499,
-    periodLabel: 'year',
+    name: 'Pro Yearly',
+    tagline: 'Annual commitment with ~16% discount for established businesses',
     features: [
-      'Everything in Pro Monthly',
-      'Save over 55% compared to Monthly',
-      'Priority server-side processing modules',
-      'Best value for small businesses & freelancers',
-    ],
-  },
-  lifetime: {
-    code: 'lifetime',
-    name: 'Lifetime Sovereign',
-    priceUSD: 19.99,
-    priceINR: 999,
-    periodLabel: 'one-time',
-    features: [
-      'Everything in Pro Yearly',
-      'Pay once, enjoy premium modules forever',
-      'Zero recurring charge loops',
-      'Lifetime updates & feature increments',
+      'Everything in Pro Monthly included',
+      'Save ~16% compared to monthly billing',
+      '12-month lock-in against subscription price changes',
+      'Priority offline backup synchronization & support',
     ],
   },
 };
 
-// Pricing display generator based on selected currency
-export interface DisplayPrice {
-  amount: number;
-  symbol: string;
-  formatted: string;
+/**
+ * Supported regional pricing matrix strictly enforcing prompt requirements:
+ * India: ₹199 / month, ₹1,999 / year
+ * Outside India: $2.99 / month, $29.99 / year
+ */
+export const REGIONAL_PRICING: Record<'IN' | 'INTL', Record<'pro_monthly' | 'pro_yearly', PlanPricing>> = {
+  IN: {
+    pro_monthly: {
+      amount: 199,
+      currency: 'INR',
+      symbol: '₹',
+      interval: 'month',
+      intervalLabel: 'every month',
+      formatted: '₹199',
+      provider: 'razorpay',
+      configuredProductId: 'plan_india_pro_monthly',
+    },
+    pro_yearly: {
+      amount: 1999,
+      currency: 'INR',
+      symbol: '₹',
+      interval: 'year',
+      intervalLabel: 'every year',
+      formatted: '₹1,999',
+      equivalentMonthly: 166.58,
+      equivalentMonthlyFormatted: '₹166.58/mo',
+      savingsPercent: 16,
+      provider: 'razorpay',
+      configuredProductId: 'plan_india_pro_yearly',
+    },
+  },
+  INTL: {
+    pro_monthly: {
+      amount: 2.99,
+      currency: 'USD',
+      symbol: '$',
+      interval: 'month',
+      intervalLabel: 'every month',
+      formatted: '$2.99',
+      provider: 'paypal',
+      configuredProductId: 'plan_intl_pro_monthly',
+    },
+    pro_yearly: {
+      amount: 29.99,
+      currency: 'USD',
+      symbol: '$',
+      interval: 'year',
+      intervalLabel: 'every year',
+      formatted: '$29.99',
+      equivalentMonthly: 2.50,
+      equivalentMonthlyFormatted: '$2.50/mo',
+      savingsPercent: 16,
+      provider: 'paypal',
+      configuredProductId: 'plan_intl_pro_yearly',
+    },
+  },
+};
+
+/**
+ * Reliably detects likely billing country without relying only on IP geolocation.
+ * Checks system timezone (Asia/Kolkata), language locale (en-IN), or profile preference.
+ */
+export function detectLikelyBillingCountry(savedCountry?: string, currency?: string): 'IN' | 'INTL' {
+  if (savedCountry) {
+    return savedCountry.toUpperCase() === 'IN' || savedCountry.toUpperCase() === 'INDIA' ? 'IN' : 'INTL';
+  }
+
+  if (currency === 'INR') {
+    return 'IN';
+  }
+
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && (tz.includes('Kolkata') || tz.includes('Calcutta') || tz === 'Asia/Kolkata')) {
+      return 'IN';
+    }
+
+    if (typeof navigator !== 'undefined') {
+      const languages = navigator.languages || [navigator.language];
+      if (languages.some((l) => l && l.toLowerCase().includes('-in'))) {
+        return 'IN';
+      }
+    }
+  } catch (_) {
+    // Ignore detection error and fallback to INTL
+  }
+
+  return 'INTL';
 }
 
-export function getDisplayPrice(plan: SubscriptionPlanCode, currencyCode: string = 'USD'): DisplayPrice {
-  const details = SUBSCRIPTION_PLANS[plan];
-  if (plan === 'free') {
-    return { amount: 0, symbol: '', formatted: 'Free' };
-  }
+/**
+ * Returns exact pricing details for the plan and billing country.
+ * Never converts USD to INR or vice versa.
+ */
+export function getPlanPricing(
+  plan: SubscriptionPlanCode,
+  country: string = 'INTL'
+): PlanPricing | null {
+  if (plan === 'free') return null;
 
-  // Exact requested prices for USD and INR
-  if (currencyCode === 'INR') {
-    const amt = details.priceINR;
-    return { amount: amt, symbol: '₹', formatted: `₹${amt}` };
-  }
-  if (currencyCode === 'GBP') {
-    const amt = details.priceUSD; // 1:1 or typical pricing
-    return { amount: amt, symbol: '£', formatted: `£${amt}` };
-  }
-  if (currencyCode === 'EUR') {
-    const amt = details.priceUSD;
-    return { amount: amt, symbol: '€', formatted: `€${amt}` };
-  }
-  if (currencyCode === 'CAD') {
-    const amt = Math.round(details.priceUSD * 1.35 * 100) / 100;
-    return { amount: amt, symbol: 'C$', formatted: `C$${amt}` };
-  }
-  if (currencyCode === 'AUD') {
-    const amt = Math.round(details.priceUSD * 1.5 * 100) / 100;
-    return { amount: amt, symbol: 'A$', formatted: `A$${amt}` };
-  }
-  if (currencyCode === 'AED') {
-    const amt = Math.round(details.priceUSD * 3.67 * 10) / 10;
-    return { amount: amt, symbol: 'د.إ', formatted: `${amt} د.إ` };
-  }
-
-  // Fallback to USD with appropriate exchanges/formatting
-  const amt = details.priceUSD;
-  return { amount: amt, symbol: '$', formatted: `$${amt}` };
+  const regionKey: 'IN' | 'INTL' = country === 'IN' || country.toUpperCase() === 'INDIA' ? 'IN' : 'INTL';
+  return REGIONAL_PRICING[regionKey][plan];
 }
 
-// Check subscription active state
+/**
+ * Checks if user's subscription is actively entitled to Pro capabilities.
+ */
 export function isSubscriptionActive(profile: UserProfile): boolean {
   const plan = profile.subscriptionPlan || 'free';
-  if (plan === 'lifetime') return true;
   if (plan === 'free') return false;
 
   const status = profile.subscriptionStatus || 'expired';
   if (status !== 'active') return false;
 
-  // Verify expiration date
   if (profile.subscriptionExpiry) {
     const expiryDate = new Date(profile.subscriptionExpiry);
     const currentDate = new Date();
@@ -133,137 +193,256 @@ export function isSubscriptionActive(profile: UserProfile): boolean {
   return true;
 }
 
-// Core permission checker: returns true if action or premium feature is allowed
+/**
+ * Consistent entitlement system across all application features.
+ * Free plan keeps core capabilities unrestricted. Pro plan unlocks advanced features.
+ */
+export type AppFeature =
+  | 'income_tracking'
+  | 'expense_tracking'
+  | 'basic_dashboard'
+  | 'basic_summaries'
+  | 'basic_categories'
+  | 'client_management'
+  | 'basic_history'
+  | 'csv_export'
+  | 'excel_export'
+  | 'backup_restore'
+  | 'pdf_reports'
+  | 'unlimited_transactions'
+  | 'advanced_reports'
+  | 'pdf_account_statements'
+  | 'custom_date_statements'
+  | 'custom_period_statements'
+  | 'project_profitability'
+  | 'client_project_profitability'
+  | 'batch_receipt_ocr'
+  | 'recurring_bills'
+  | 'recurring_income'
+  | 'recurring_expenses'
+  | 'advanced_analytics'
+  | 'advanced_invoices'
+  | 'receipt_attachments'
+  | 'multiple_businesses';
+
 export function isFeatureAllowed(
   profile: UserProfile,
-  feature: 
-    | 'unlimited_transactions'
-    | 'excel_export'
-    | 'pdf_reports'
-    | 'receipt_attachments'
-    | 'recurring_income'
-    | 'recurring_expenses'
-    | 'multiple_businesses'
-    | 'advanced_analytics'
-    | 'backup_restore',
+  feature: AppFeature,
   currentTransactionsCount: number = 0
 ): { allowed: boolean; message?: string } {
-  const hasPremium = isSubscriptionActive(profile);
+  const hasPro = isSubscriptionActive(profile);
 
-  if (feature === 'unlimited_transactions') {
-    if (hasPremium) return { allowed: true };
-    return {
-      allowed: currentTransactionsCount < 500,
-      message: currentTransactionsCount >= 505 
-        ? 'Transaction count limit reached! Upgrade to Pro for unlimited transactions.'
-        : undefined
-    };
-  }
+  // 1. Core Free Features (Always 100% free and never blocked)
+  const alwaysFreeFeatures: AppFeature[] = [
+    'income_tracking',
+    'expense_tracking',
+    'basic_dashboard',
+    'basic_summaries',
+    'basic_categories',
+    'client_management',
+    'basic_history',
+    'csv_export',
+    'excel_export',
+    'backup_restore',
+    'pdf_reports',
+  ];
 
-  // Core user ownership features: CSV/Excel export, PDF reports, and JSON backup are always allowed
-  if (feature === 'excel_export' || feature === 'backup_restore' || feature === 'pdf_reports') {
+  if (alwaysFreeFeatures.includes(feature)) {
     return { allowed: true };
   }
 
-  // All other listed features require an active license tier
-  if (!hasPremium) {
-    const labels: Record<string, string> = {
-      receipt_attachments: 'Batch Receipt Ingest is a Pro feature.',
-      recurring_income: 'Recurring Income automation is a Pro feature.',
-      recurring_expenses: 'Recurring Expense scheduling is a Pro feature.',
-      multiple_businesses: 'Managing Multiple Business Workspaces is a Pro feature.',
-      advanced_analytics: 'Advanced BI charts and Business Insights are Pro features.',
+  // 2. Transaction Quota Check
+  if (feature === 'unlimited_transactions') {
+    if (hasPro) return { allowed: true };
+    return {
+      allowed: currentTransactionsCount < 500,
+      message:
+        currentTransactionsCount >= 500
+          ? 'Free plan quota of 500 transactions reached. Upgrade to Pro for unlimited transactions.'
+          : undefined,
     };
-    return { 
-      allowed: false, 
-      message: labels[feature] || 'This capability requires a Pro license.' 
+  }
+
+  // 3. Pro Gated Features
+  if (!hasPro) {
+    const featureLabels: Partial<Record<AppFeature, string>> = {
+      advanced_reports: 'Advanced financial reports and comprehensive P&L analytics are a Pro feature.',
+      pdf_account_statements: 'Generating bank-grade printable PDF account statements is a Pro feature.',
+      custom_date_statements: 'Generating custom-period and custom date range statements is a Pro feature.',
+      custom_period_statements: 'Monthly and custom-period income and expense statements are a Pro feature.',
+      client_project_profitability: 'Client and project profitability analytics are a Pro feature.',
+      project_profitability: 'Deep project & client profitability breakdown is a Pro feature.',
+      batch_receipt_ocr: 'Batch receipt OCR and automated expense extraction is a Pro feature.',
+      receipt_attachments: 'Receipt attachment & batch image ingest is a Pro feature.',
+      recurring_bills: 'Recurring bills, scheduled obligations, and cash-flow forecasting are a Pro feature.',
+      recurring_income: 'Automated recurring income scheduling is a Pro feature.',
+      recurring_expenses: 'Automated recurring bill obligations are a Pro feature.',
+      advanced_analytics: 'Advanced analytics, predictive trends, and report filters are a Pro feature.',
+      advanced_invoices: 'Advanced invoice customization, payment tracking, and tax summaries are a Pro feature.',
+      multiple_businesses: 'Managing multiple corporate entities and workspaces is a Pro feature.',
+    };
+
+    return {
+      allowed: false,
+      message: featureLabels[feature] || 'This advanced feature requires an active Pro subscription.',
     };
   }
 
   return { allowed: true };
 }
 
-// Swappable Provider Interface (Stripe, Play Billing, Microsoft Store, etc.)
-export interface IPaymentProvider {
-  name: string;
-  checkout(plan: SubscriptionPlanCode, currency: string): Promise<{ success: boolean; expiryDate?: string }>;
-  restorePurchases(): Promise<{ success: boolean; plan?: SubscriptionPlanCode; expiryDate?: string }>;
+// ==========================================
+// SERVER-SIDE VERIFIED CHECKOUT CLIENT FLOWS
+// ==========================================
+
+export interface CheckoutSessionResponse {
+  success: boolean;
+  sessionId: string;
+  provider: 'razorpay' | 'paypal' | 'sandbox';
+  isSandbox: boolean;
+  amount: number;
+  currency: 'INR' | 'USD';
+  planCode: 'pro_monthly' | 'pro_yearly';
+  billingCountry: string;
+  interval: 'month' | 'year';
+  keyId?: string;
+  clientId?: string;
+  subscriptionId?: string;
+  orderId?: string;
+  checkoutUrl?: string;
+  token?: string;
+  isDevTestMode?: boolean;
+  diagnostic?: string;
+  error?: string;
 }
 
-// Stripe Payment Gateway implementation
-export class StripeProvider implements IPaymentProvider {
-  name = 'Stripe Secure Checkout';
-  async checkout(plan: SubscriptionPlanCode, currency: string): Promise<{ success: boolean; expiryDate?: string }> {
-    console.log(`Connecting to Stripe for plan: ${plan}, currency: ${currency}`);
-    // Simulate real network request validation
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    // Set expiry
-    const expiry = new Date();
-    if (plan === 'pro_monthly') {
-      expiry.setMonth(expiry.getMonth() + 1);
-    } else if (plan === 'pro_yearly') {
-      expiry.setFullYear(expiry.getFullYear() + 1);
-    } else {
-      return { success: true }; // Lifetime has no expiry
-    }
-    
-    return { 
-      success: true, 
-      expiryDate: expiry.toISOString().split('T')[0] 
-    };
-  }
-
-  async restorePurchases(): Promise<{ success: boolean; plan?: SubscriptionPlanCode; expiryDate?: string }> {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    // Simulate recovery of valid token
-    return { success: false }; // No prior active purchases to restore on first load
-  }
+export interface VerifyPaymentPayload {
+  sessionId: string;
+  planCode: 'pro_monthly' | 'pro_yearly';
+  billingCountry: string;
+  provider: 'razorpay' | 'paypal' | 'sandbox';
+  token?: string;
+  razorpay_payment_id?: string;
+  razorpay_subscription_id?: string;
+  razorpay_order_id?: string;
+  razorpay_signature?: string;
+  paypal_subscription_id?: string;
+  paypal_order_id?: string;
 }
 
-// Google Play Billing Provider implementation
-export class GooglePlayProvider implements IPaymentProvider {
-  name = 'Google Play Billing API';
-  async checkout(plan: SubscriptionPlanCode, currency: string): Promise<{ success: boolean; expiryDate?: string }> {
-    console.log(`Connecting to Google Play Core for plan: ${plan}`);
-    await new Promise((resolve) => setTimeout(resolve, 1400));
-    
-    const expiry = new Date();
-    if (plan === 'pro_monthly') expiry.setMonth(expiry.getMonth() + 1);
-    else if (plan === 'pro_yearly') expiry.setFullYear(expiry.getFullYear() + 1);
-
-    return { success: true, expiryDate: expiry.toISOString().split('T')[0] };
-  }
-
-  async restorePurchases(): Promise<{ success: boolean; plan?: SubscriptionPlanCode; expiryDate?: string }> {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    return { success: false };
-  }
+export interface VerifyPaymentResult {
+  success: boolean;
+  subscription?: {
+    subscriptionId: string;
+    planCode: 'pro_monthly' | 'pro_yearly';
+    billingCountry: string;
+    currency: 'INR' | 'USD';
+    amount: number;
+    interval: 'month' | 'year';
+    status: 'active';
+    startDate: string;
+    expiryDate: string;
+    provider: 'razorpay' | 'paypal' | 'sandbox';
+    signature: string;
+  };
+  error?: string;
 }
 
-// Microsoft Store purchase provider
-export class MicrosoftStoreProvider implements IPaymentProvider {
-  name = 'Microsoft Store In-App Purchases';
-  async checkout(plan: SubscriptionPlanCode, currency: string): Promise<{ success: boolean; expiryDate?: string }> {
-    console.log(`Contacting Microsoft Windows Store API to purchase ${plan}`);
-    await new Promise((resolve) => setTimeout(resolve, 1600));
+/**
+ * Initiates a server-validated checkout session.
+ * The server strictly determines the price and currency; client cannot tamper with amounts.
+ */
+export async function createCheckoutSession(params: {
+  planCode: 'pro_monthly' | 'pro_yearly';
+  billingCountry: string;
+  customerEmail?: string;
+  customerName?: string;
+}): Promise<CheckoutSessionResponse> {
+  const response = await fetch('/api/billing/create-checkout-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
 
-    const expiry = new Date();
-    if (plan === 'pro_monthly') expiry.setMonth(expiry.getMonth() + 1);
-    else if (plan === 'pro_yearly') expiry.setFullYear(expiry.getFullYear() + 1);
-
-    return { success: true, expiryDate: expiry.toISOString().split('T')[0] };
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to create checkout session (${response.status})`);
+    err.code = errData.code;
+    throw err;
   }
 
-  async restorePurchases(): Promise<{ success: boolean; plan?: SubscriptionPlanCode; expiryDate?: string }> {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    return { success: false };
-  }
+  return response.json();
 }
 
-// Registry to allow dynamic swapping
-export const PAYMENT_PROVIDERS: Record<string, IPaymentProvider> = {
-  stripe: new StripeProvider(),
-  google_play: new GooglePlayProvider(),
-  microsoft_store: new MicrosoftStoreProvider(),
-};
+/**
+ * Verifies the payment or subscription proof on the server.
+ * Never grants Pro unless the backend cryptographically verifies the provider signature.
+ */
+export async function verifyPaymentOnServer(payload: VerifyPaymentPayload): Promise<VerifyPaymentResult> {
+  const response = await fetch('/api/billing/verify-payment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `Payment verification failed (${response.status})`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Cancels a subscription at period end via server.
+ */
+export async function cancelSubscriptionOnServer(subscriptionId: string): Promise<{ success: boolean; expiryDate?: string; error?: string }> {
+  const response = await fetch('/api/billing/cancel-subscription', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscriptionId }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to cancel subscription');
+  }
+
+  return response.json();
+}
+
+/**
+ * Recovers an existing subscription using email or subscription ID.
+ */
+export async function recoverSubscriptionOnServer(identifier: string): Promise<VerifyPaymentResult> {
+  const response = await fetch('/api/billing/recover-subscription', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || 'No active subscription found for this identifier');
+  }
+
+  return response.json();
+}
+
+/**
+ * Checks subscription standing directly against provider APIs without webhooks.
+ */
+export async function checkSubscriptionStatusOnServer(subscriptionId: string): Promise<{ success: boolean; subscription?: any; providerStatus?: string; error?: string }> {
+  const response = await fetch('/api/billing/check-subscription-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscriptionId }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to check subscription status');
+  }
+
+  return response.json();
+}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   FileText, 
@@ -12,11 +12,19 @@ import {
   User, 
   Calendar,
   Percent,
-  Receipt
+  Receipt,
+  Save,
+  Mail,
+  Phone,
+  MapPin,
+  Hash,
+  Sparkles
 } from 'lucide-react';
-import { UserProfile, Transaction } from '../types';
+import { UserProfile, Transaction, Client } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
 import { roundMoney } from '../utils/financeCalculations';
+import { isSubscriptionActive } from '../utils/subscriptionService';
+import { ClientSelector } from './ClientSelector';
 
 export interface InvoiceLineItem {
   id: string;
@@ -29,6 +37,9 @@ interface InvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: UserProfile;
+  clients?: Client[];
+  initialSelectedClient?: Client | null;
+  onSaveClient?: (client: Client) => void;
   onRecordIncome?: (tx: Omit<Transaction, 'id'>) => void;
 }
 
@@ -36,6 +47,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   isOpen,
   onClose,
   profile,
+  clients = [],
+  initialSelectedClient = null,
+  onSaveClient,
   onRecordIncome
 }) => {
   const [docType, setDocType] = useState<'Invoice' | 'Estimate'>('Invoice');
@@ -51,9 +65,27 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const [dueDate, setDueDate] = useState(defaultDueDate());
 
   // Client Details
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [clientName, setClientName] = useState('');
+  const [clientCompany, setClientCompany] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
   const [clientAddress, setClientAddress] = useState('');
+  const [clientGstin, setClientGstin] = useState('');
+  const [clientUpdatedToast, setClientUpdatedToast] = useState(false);
+
+  // Sync initial client when passed from Client Profile drawer
+  useEffect(() => {
+    if (initialSelectedClient && isOpen) {
+      setSelectedClientId(initialSelectedClient.id);
+      setClientName(initialSelectedClient.name);
+      setClientCompany(initialSelectedClient.companyName || '');
+      setClientEmail(initialSelectedClient.email || '');
+      setClientPhone(initialSelectedClient.phone || '');
+      setClientAddress(initialSelectedClient.billingAddress || '');
+      setClientGstin(initialSelectedClient.gstin || '');
+    }
+  }, [initialSelectedClient, isOpen]);
 
   // Items
   const [items, setItems] = useState<InvoiceLineItem[]>([
@@ -64,6 +96,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const [taxRate, setTaxRate] = useState<number>(profile.taxRate || 18);
   const [notes, setNotes] = useState('Payment is due within 15 days. Bank Transfer / UPI accepted.');
   const [isRecorded, setIsRecorded] = useState(false);
+  const isPro = isSubscriptionActive(profile);
 
   if (!isOpen) return null;
 
@@ -99,6 +132,47 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     window.print();
   };
 
+  const handleSelectClient = (client: Client | null) => {
+    if (client) {
+      setSelectedClientId(client.id);
+      setClientName(client.name);
+      setClientCompany(client.companyName || '');
+      setClientEmail(client.email || '');
+      setClientPhone(client.phone || '');
+      setClientAddress(client.billingAddress || '');
+      setClientGstin(client.gstin || '');
+    } else {
+      setSelectedClientId('');
+      setClientName('');
+      setClientCompany('');
+      setClientEmail('');
+      setClientPhone('');
+      setClientAddress('');
+      setClientGstin('');
+    }
+  };
+
+  const handleUpdateSavedClient = () => {
+    if (!selectedClientId || !onSaveClient) return;
+    const existing = clients.find((c) => c.id === selectedClientId);
+    if (!existing) return;
+
+    const updated: Client = {
+      ...existing,
+      name: clientName.trim() || existing.name,
+      companyName: clientCompany.trim() || undefined,
+      email: clientEmail.trim() || undefined,
+      phone: clientPhone.trim() || undefined,
+      billingAddress: clientAddress.trim() || undefined,
+      gstin: clientGstin.trim().toUpperCase() || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    onSaveClient(updated);
+    setClientUpdatedToast(true);
+    setTimeout(() => setClientUpdatedToast(false), 3000);
+  };
+
   // Save to ledger as income
   const handleRecordToLedger = () => {
     if (!onRecordIncome || subtotal <= 0) return;
@@ -111,10 +185,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       category: 'Client Services',
       date: issueDate,
       description: `${docType} #${docNumber}: ${clientName || 'Client'}`,
+      clientId: selectedClientId || undefined,
+      clientName: clientName.trim() || undefined,
       project: clientName.trim() || undefined,
       account: 'Operating Account',
       paymentMethod: 'Bank Transfer',
-      notes: `${docType} details:\nSubtotal: ${formatCurrency(subtotal, profile.currency)}\nTax: ${formatCurrency(taxAmount, profile.currency)}\nTotal: ${formatCurrency(totalAmount, profile.currency)}\nClient: ${clientName} (${clientEmail})`,
+      notes: `${docType} #${docNumber} Snapshot:\nClient: ${clientName}${clientCompany ? ` (${clientCompany})` : ''}\nEmail: ${clientEmail || 'N/A'}\nPhone: ${clientPhone || 'N/A'}\nGSTIN: ${clientGstin || 'N/A'}\nAddress: ${clientAddress || 'N/A'}\nSubtotal: ${formatCurrency(subtotal, profile.currency)}\nTax: ${formatCurrency(taxAmount, profile.currency)}\nTotal: ${formatCurrency(totalAmount, profile.currency)}\nTerms: ${notes}`,
       isRecurring: false,
       recurrencePeriod: 'none',
       createdAt: new Date().toISOString()
@@ -144,6 +220,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
                   Document Generator
+                </span>
+                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  PRO
                 </span>
                 <span className="text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full font-bold">
                   Print & PDF Ready
@@ -257,31 +337,126 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             </div>
 
             {/* Bill To */}
-            <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/20 border border-slate-200/80 dark:border-slate-800 space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">
-                Bill To (Client / Customer)
-              </span>
-              <input
-                type="text"
-                placeholder="Client Name or Company (e.g. Acme Innovations)"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold"
+            <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/20 border border-slate-200/80 dark:border-slate-800 space-y-3">
+              <ClientSelector
+                clients={clients}
+                selectedClientId={selectedClientId}
+                selectedClientName={clientName}
+                onSelectClient={handleSelectClient}
+                onAddNewClient={(newClient) => {
+                  if (onSaveClient) onSaveClient(newClient);
+                  handleSelectClient(newClient);
+                }}
+                label="Bill To (Recipient Client)"
+                placeholder="Select a client to auto-fill billing details..."
+                helperText="Select a client to automatically fill in their billing details."
+                profile={profile}
               />
-              <input
-                type="email"
-                placeholder="Client Email Address"
-                value={clientEmail}
-                onChange={(e) => setClientEmail(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
-              />
-              <input
-                type="text"
-                placeholder="Client Address / GSTIN / Tax ID"
-                value={clientAddress}
-                onChange={(e) => setClientAddress(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
-              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Client Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Recipient / Client Name"
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Company Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Company / Org Name"
+                    value={clientCompany}
+                    onChange={(e) => setClientCompany(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="billing@client.com"
+                    value={clientEmail}
+                    onChange={(e) => setClientEmail(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Phone / Mobile
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+1 (555) 000-0000"
+                    value={clientPhone}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Billing Address
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Street, City, Postal Code, Country"
+                    value={clientAddress}
+                    onChange={(e) => setClientAddress(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Tax ID / GSTIN
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="GSTIN / EIN / VAT Number"
+                    value={clientGstin}
+                    onChange={(e) => setClientGstin(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono uppercase"
+                  />
+                </div>
+              </div>
+
+              {/* Option to sync edits back to saved client record */}
+              {selectedClientId && onSaveClient && (
+                <div className="pt-1 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400 italic">
+                    Editing fields above applies only to this document unless saved back.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUpdateSavedClient}
+                    className="flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <Save className="w-3 h-3" />
+                    <span>Update Saved Client Details</span>
+                  </button>
+                </div>
+              )}
+
+              {clientUpdatedToast && (
+                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Master client record updated with current details!</span>
+                </div>
+              )}
             </div>
           </div>
 

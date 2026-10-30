@@ -460,6 +460,13 @@ export const getDateRangeForPeriod = (
     return { startDate: fy.startDate, endDate: fy.endDate, label: fy.label };
   }
 
+  if (period === ('last_financial_year' as any)) {
+    const lastYearRef = new Date(referenceDate);
+    lastYearRef.setFullYear(referenceDate.getFullYear() - 1);
+    const fy = getFinancialYearDates(lastYearRef, financialYearStart);
+    return { startDate: fy.startDate, endDate: fy.endDate, label: `Last Financial Year (${fy.yearTag})` };
+  }
+
   if (period === 'calendar_year') {
     return { startDate: `${year}-01-01`, endDate: `${year}-12-31`, label: `Calendar Year ${year}` };
   }

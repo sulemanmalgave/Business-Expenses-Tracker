@@ -52,7 +52,7 @@ export const TermsOfServiceView: React.FC<TermsOfServiceViewProps> = ({ onBack }
             The applet provides a dual-tiered finance management model. Under the Free Plan, you are granted a non-exclusive license to track and store up to 500 transaction cards inside your client-side sandbox.
           </p>
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            To lift this storage cap and unlock Premium capabilities (e.g., unlimited ledger cards, PDF exports, custom receipt image attachments, advanced BI charts, and multiple independent company sandbox configurations), you must acquire a monthly, yearly, or lifetime pro upgrade. All processing is securely and transiently managed.
+            To lift this storage cap and unlock Premium capabilities (e.g., unlimited ledger cards, PDF exports, custom receipt image attachments, advanced BI charts, and multiple independent company sandbox configurations), you must acquire an active monthly or yearly pro subscription. All processing is securely and transiently managed.
           </p>
         </section>
 

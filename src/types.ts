@@ -23,6 +23,8 @@ export interface Transaction {
   paymentMethod?: string;
   account?: string;
   project?: string;
+  clientId?: string;
+  clientName?: string;
   notes?: string;
   receipt?: string; // Base64 or IndexedDB object key
   receiptName?: string;
@@ -32,6 +34,35 @@ export interface Transaction {
   transferToAccount?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Client {
+  id: string;
+  name: string; // Required: Client or business name
+  companyName?: string;
+  company?: string; // Convenient alias
+  email?: string;
+  phone?: string;
+  billingAddress?: string;
+  address?: string; // Convenient alias
+  gstin?: string; // GSTIN or tax registration number
+  notes?: string;
+  defaultCurrency?: string;
+  isArchived?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ClientFinancialSummary {
+  clientId: string;
+  clientName: string;
+  totalIncome: number;
+  totalExpenses: number;
+  netContribution: number;
+  transactionCount: number;
+  incomeCount: number;
+  expenseCount: number;
+  latestTransactionDate: string | null;
 }
 
 export interface Category {
@@ -82,9 +113,18 @@ export interface UserProfile {
   dateFormatPreference?: string;
   numberFormatPreference?: string;
   onboarded?: boolean;
-  subscriptionPlan?: 'free' | 'pro_monthly' | 'pro_yearly' | 'lifetime';
+  billingCountry?: string;
+  subscriptionPlan?: 'free' | 'pro_monthly' | 'pro_yearly';
   subscriptionStatus?: 'active' | 'expired';
   subscriptionExpiry?: string | null;
+  subscriptionId?: string;
+  subscriptionProvider?: 'razorpay' | 'paypal' | 'sandbox';
+  subscriptionInterval?: 'month' | 'year';
+  subscriptionCurrency?: string;
+  subscriptionAmount?: number;
+  cancelAtPeriodEnd?: boolean;
+  subscriptionSignature?: string;
+  subscriptionLastVerified?: string;
 }
 
 export interface FinancialSummary {

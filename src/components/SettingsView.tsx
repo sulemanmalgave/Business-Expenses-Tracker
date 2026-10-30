@@ -526,10 +526,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm mt-5">
         <div className="border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150 flex items-center gap-1.5">
+            <h3 className="text-sm font-bold text-slate-850 dark:text-slate-150 flex items-center gap-2">
               <Building className="w-4 h-4 text-indigo-500" />
               <span>Multiple Business Profiles</span>
-              {!isPremium && <span className="text-[8px] font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded-full uppercase">🔒 Pro</span>}
+              {!isPremium && (
+                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  PRO
+                </span>
+              )}
             </h3>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
               Manage separate independent business workspaces with distinct ledger reporting and categories.
@@ -548,10 +553,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onCreateBusiness?.(name.trim());
               }
             }}
-            className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 self-start sm:self-center transition-colors pointer-events-auto shadow-sm"
+            className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 self-start sm:self-center transition-colors pointer-events-auto shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Business</span>
+            {!isPremium && (
+              <span className="text-[8px] font-black uppercase tracking-wider px-1 py-0.2 rounded bg-indigo-800 text-indigo-100">
+                PRO
+              </span>
+            )}
           </button>
         </div>
 

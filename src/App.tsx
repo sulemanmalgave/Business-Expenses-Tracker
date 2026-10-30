@@ -18,10 +18,12 @@ import {
   AlertCircle,
   RotateCcw,
   CheckCircle2,
-  Calendar
+  Calendar,
+  FileSpreadsheet,
+  Users
 } from 'lucide-react';
 
-import { Transaction, Category, UserProfile, RecurringBill } from './types';
+import { Transaction, Category, UserProfile, RecurringBill, Client } from './types';
 import { 
   DEFAULT_CATEGORIES, 
   DEFAULT_PROFILE, 
@@ -34,16 +36,19 @@ import {
   persistTransactions, 
   persistCategories, 
   persistProfile, 
-  persistRecurringBills 
+  persistRecurringBills,
+  persistClients 
 } from './utils/indexedDbStorage';
 import { processBillPayment } from './utils/recurringService';
-import { isSubscriptionActive } from './utils/subscriptionService';
+import { isSubscriptionActive, verifyPaymentOnServer } from './utils/subscriptionService';
 
 // Modular Views
 import { DashboardView } from './components/DashboardView';
 import { ExpensesView } from './components/ExpensesView';
 import { IncomeView } from './components/IncomeView';
+import { ClientsView } from './components/ClientsView';
 import { ReportsView } from './components/ReportsView';
+import { StatementsView } from './components/StatementsView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { SettingsView } from './components/SettingsView';
@@ -68,6 +73,8 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [invoiceInitialClient, setInvoiceInitialClient] = useState<Client | null>(null);
   const [isDark, setIsDark] = useState<boolean>(false);
   const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
 
@@ -91,9 +98,75 @@ export default function App() {
 
   // Profile Dropdown state
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [billingNotification, setBillingNotification] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
 
   // Time tracker for header
   const [systemTime, setSystemTime] = useState(new Date());
+
+  // Check for PayPal return or cancel query parameters
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const billingStatus = urlParams.get('billing');
+    const sessionId = urlParams.get('session_id');
+    const planCode = (urlParams.get('plan') || 'pro_monthly') as 'pro_monthly' | 'pro_yearly';
+    const subId = urlParams.get('subscription_id') || urlParams.get('token');
+
+    if (billingStatus === 'success' && subId) {
+      const verifyReturn = async () => {
+        try {
+          setBillingNotification({
+            type: 'info',
+            message: 'Verifying your PayPal subscription status with PayPal servers...',
+          });
+          const result = await verifyPaymentOnServer({
+            sessionId: sessionId || `sess_return_${Date.now()}`,
+            planCode,
+            billingCountry: 'INTL',
+            provider: 'paypal',
+            paypal_subscription_id: subId,
+          });
+
+          if (result.success && result.subscription) {
+            handleUpdateProfile({
+              ...profile,
+              subscriptionPlan: result.subscription.planCode,
+              subscriptionStatus: 'active',
+              subscriptionExpiry: result.subscription.expiryDate,
+              subscriptionId: result.subscription.subscriptionId,
+              cancelAtPeriodEnd: false,
+            });
+            setBillingNotification({
+              type: 'success',
+              message: '🎉 Your PayPal subscription has been verified and Pro features are fully activated!',
+            });
+          } else {
+            setBillingNotification({
+              type: 'error',
+              message: result.error || 'PayPal payment could not be verified on the server.',
+            });
+          }
+        } catch (err: any) {
+          setBillingNotification({
+            type: 'error',
+            message: err.message || 'PayPal payment verification failed.',
+          });
+        } finally {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      verifyReturn();
+    } else if (billingStatus === 'cancelled') {
+      setBillingNotification({
+        type: 'info',
+        message: 'PayPal subscription checkout was cancelled.',
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   // 1. Initial Durable Database Hydration (IndexedDB + localStorage migration)
   useEffect(() => {
@@ -104,6 +177,7 @@ export default function App() {
         setCategories(data.categories);
         setProfile(data.profile);
         setRecurringBills(data.recurringBills || []);
+        setClients(data.clients || []);
 
         // Multiple businesses list
         const storedBusinesses = localStorage.getItem('finance_app_businesses_list');
@@ -171,8 +245,33 @@ export default function App() {
     persistRecurringBills(updatedBills);
   };
 
+  const updateClientsState = (updatedList: Client[]) => {
+    setClients(updatedList);
+    persistClients(updatedList);
+  };
+
+  const handleSaveClient = (client: Client) => {
+    const exists = clients.some((c) => c.id === client.id);
+    let updated: Client[];
+    if (exists) {
+      updated = clients.map((c) => (c.id === client.id ? client : c));
+    } else {
+      updated = [client, ...clients];
+    }
+    updateClientsState(updated);
+  };
+
+  const handleArchiveClient = (clientId: string) => {
+    const updated = clients.map((c) => (c.id === clientId ? { ...c, isArchived: true, updatedAt: new Date().toISOString() } : c));
+    updateClientsState(updated);
+  };
+
+  const handleUnarchiveClient = (clientId: string) => {
+    const updated = clients.map((c) => (c.id === clientId ? { ...c, isArchived: false, updatedAt: new Date().toISOString() } : c));
+    updateClientsState(updated);
+  };
+
   const isPremium = isSubscriptionActive(profile);
-  const isLifetime = profile.subscriptionPlan === 'lifetime';
 
   const daysUntilExpiry = profile.subscriptionExpiry 
     ? Math.ceil((new Date(profile.subscriptionExpiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
@@ -344,12 +443,14 @@ export default function App() {
     restoredTxs: Transaction[], 
     restoredCats?: Category[], 
     restoredProf?: UserProfile,
-    restoredBills?: RecurringBill[]
+    restoredBills?: RecurringBill[],
+    restoredClients?: Client[]
   ) => {
     if (restoredTxs) updateTransactionsState(restoredTxs);
     if (restoredCats && restoredCats.length > 0) updateCategoriesState(restoredCats);
     if (restoredProf) handleUpdateProfile(restoredProf);
     if (restoredBills) updateRecurringBillsState(restoredBills);
+    if (restoredClients) updateClientsState(restoredClients);
   };
 
   // CSV ingest
@@ -402,9 +503,12 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: Layers },
     { id: 'expenses', label: 'Expenses', icon: TrendingDown },
     { id: 'income', label: 'Income', icon: TrendingUp },
+    { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'statements', label: 'Statements', icon: FileSpreadsheet },
     { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'backup', label: 'Backup & Restore', icon: Database },
+    { id: 'subscription', label: 'My Subscription', icon: Sparkles },
     { id: 'settings', label: 'Settings & Categories', icon: Settings },
   ];
 
@@ -458,7 +562,17 @@ export default function App() {
                 }`}
               >
                 <IconComponent className="w-4 h-4 shrink-0 text-current" />
-                <span>{item.label}</span>
+                <span className="flex-1 text-left">{item.label}</span>
+                {!isPremium && (item.id === 'statements' || item.id === 'analytics') && (
+                  <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                    PRO
+                  </span>
+                )}
+                {!isPremium && item.id === 'subscription' && (
+                  <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    UPGRADE
+                  </span>
+                )}
               </button>
             );
           })}
@@ -467,7 +581,7 @@ export default function App() {
           {(() => {
             const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
             const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry <= 7;
-            const showSidebarBilling = !isLifetime && (isExpiringSoon || isExpired);
+            const showSidebarBilling = isExpiringSoon || isExpired;
 
             if (!showSidebarBilling) return null;
 
@@ -494,9 +608,9 @@ export default function App() {
             </span>
           </div>
           <span className="text-[9.5px] text-slate-500">Owner: {profile.ownerName}</span>
-          {isLifetime ? (
-            <div className="flex items-center space-x-1 font-mono text-[9px] text-emerald-400 font-bold">
-              <span>💎 Lifetime License</span>
+          {isPremium ? (
+            <div className="flex items-center space-x-1 font-mono text-[9px] text-blue-400 font-bold">
+              <span>★ Pro {profile.subscriptionInterval === 'year' || profile.subscriptionPlan === 'pro_yearly' ? 'Yearly' : 'Monthly'}</span>
             </div>
           ) : (
             <div className="flex items-center space-x-1 font-mono text-[9px] text-emerald-500 font-bold">
@@ -506,6 +620,88 @@ export default function App() {
           )}
         </div>
       </aside>
+
+      {/* MOBILE DRAWER NAVIGATION */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSidebarOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs"
+            />
+            <motion.aside
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-72 max-w-[85vw] bg-[#0F172A] border-r border-slate-800 flex flex-col z-10 select-none shadow-2xl h-full"
+            >
+              <div className="p-5 flex items-center justify-between border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white text-lg">B</div>
+                  <div>
+                    <span className="text-base font-bold text-white tracking-tight block">Business Expense</span>
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block">Tracker</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+                {NAV_ITEMS.map((item) => {
+                  const IconComponent = item.icon;
+                  const isSelected = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setSidebarOpen(false);
+                      }}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all pointer-events-auto ${
+                        isSelected
+                          ? 'bg-blue-600/20 text-blue-400 border border-blue-600/30'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      <IconComponent className="w-4 h-4 shrink-0 text-current" />
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {!isPremium && (item.id === 'statements' || item.id === 'analytics') && (
+                        <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          PRO
+                        </span>
+                      )}
+                      {!isPremium && item.id === 'subscription' && (
+                        <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          UPGRADE
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="p-4 border-t border-slate-800 bg-[#0c1222] text-[10px] text-slate-400">
+                <div className="flex items-center justify-between font-semibold text-slate-300 mb-1">
+                  <span className="truncate max-w-[140px]">{profile.businessName}</span>
+                  <span className="font-mono text-[9px] uppercase bg-slate-800 px-1 py-0.5 rounded font-bold text-slate-300">
+                    {profile.currency}
+                  </span>
+                </div>
+                <span className="text-[9.5px] text-slate-500 block">Owner: {profile.ownerName}</span>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content Chassis */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -579,7 +775,7 @@ export default function App() {
                     {profile.businessName}
                   </span>
                   <span className="text-[9px] text-slate-400 block font-mono">
-                    {profile.ownerName.split(' ')[0]} {isLifetime && '💎'}
+                    {profile.ownerName.split(' ')[0]} {isPremium && '★'}
                   </span>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700">
@@ -593,17 +789,16 @@ export default function App() {
                     <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{profile.businessName}</p>
                     <p className="text-[10px] text-slate-500 truncate">{profile.ownerName}</p>
                     <span className={`inline-block mt-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                      isLifetime 
-                        ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30' 
-                        : isPremium 
+                      isPremium 
                         ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' 
                         : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800'
                     }`}>
-                      {isLifetime ? '💎 Lifetime' : isPremium ? (profile.subscriptionPlan === 'pro_yearly' ? 'Pro Yearly' : 'Pro Monthly') : 'Free Plan'}
+                      {isPremium ? (profile.subscriptionPlan === 'pro_yearly' ? 'Pro Yearly' : 'Pro Monthly') : 'Free Plan'}
                     </span>
                   </div>
                   {[
                     { label: 'Profile & Settings', id: 'settings' },
+                    { label: 'Account & Monthly Statements', id: 'statements' },
                     { label: 'Subscription & Plans', id: 'subscription' },
                     { label: 'Backup & Restore', id: 'backup' },
                     { label: 'Privacy & Data Ownership', id: 'privacy' },
@@ -630,6 +825,31 @@ export default function App() {
         {/* Viewport Router Body */}
         <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl w-full mx-auto relative">
           
+          {/* Real-time Billing Notification Banner */}
+          {billingNotification && (
+            <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between text-xs font-medium shadow-sm transition-all ${
+              billingNotification.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                : billingNotification.type === 'error'
+                ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {billingNotification.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />}
+                {billingNotification.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
+                {billingNotification.type === 'info' && <RefreshCw className="w-4 h-4 shrink-0 text-blue-600 animate-spin" />}
+                <span>{billingNotification.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBillingNotification(null)}
+                className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors pointer-events-auto"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -645,8 +865,20 @@ export default function App() {
                   profile={profile}
                   onNavigate={setActiveTab}
                   onQuickAdd={handleQuickAdd}
-                  onOpenBatchReceipts={() => setBatchReceiptsOpen(true)}
-                  onOpenRecurringBills={() => setRecurringBillsOpen(true)}
+                  onOpenBatchReceipts={() => {
+                    if (!isPremium) {
+                      handleUpgradeTrigger('Unlock multi-document Batch Receipt OCR parsing with Pro.');
+                    } else {
+                      setBatchReceiptsOpen(true);
+                    }
+                  }}
+                  onOpenRecurringBills={() => {
+                    if (!isPremium) {
+                      handleUpgradeTrigger('Unlock automated recurring bills & cash-flow forecasting with Pro.');
+                    } else {
+                      setRecurringBillsOpen(true);
+                    }
+                  }}
                   onMarkBillPaid={handleMarkBillPaid}
                   onOpenInvoices={() => setInvoiceModalOpen(true)}
                   onResetToDemo={handleResetToDemo}
@@ -659,10 +891,12 @@ export default function App() {
                   transactions={transactions}
                   categories={categories}
                   profile={profile}
+                  clients={clients}
                   onAddTransaction={handleAddTransaction}
                   onEditTransaction={handleEditTransaction}
                   onDeleteTransaction={handleDeleteTransaction}
                   onAddCustomCategory={handleAddCustomCategory}
+                  onAddClient={handleSaveClient}
                   isPremium={isPremium}
                   onUpgradeTrigger={handleUpgradeTrigger}
                 />
@@ -673,10 +907,45 @@ export default function App() {
                   transactions={transactions}
                   categories={categories}
                   profile={profile}
+                  clients={clients}
                   onAddTransaction={handleAddTransaction}
                   onEditTransaction={handleEditTransaction}
                   onDeleteTransaction={handleDeleteTransaction}
                   onAddCustomCategory={handleAddCustomCategory}
+                  onAddClient={handleSaveClient}
+                  isPremium={isPremium}
+                  onUpgradeTrigger={handleUpgradeTrigger}
+                />
+              )}
+
+              {activeTab === 'clients' && (
+                <ClientsView
+                  clients={clients}
+                  transactions={transactions}
+                  profile={profile}
+                  onSaveClient={handleSaveClient}
+                  onArchiveClient={handleArchiveClient}
+                  onUnarchiveClient={handleUnarchiveClient}
+                  onNavigateToIncomeWithClient={(_clientId, clientName) => {
+                    setActiveTab('income');
+                    setAutoOpenFormType('income');
+                  }}
+                  onNavigateToExpenseWithClient={(_clientId, clientName) => {
+                    setActiveTab('expenses');
+                    setAutoOpenFormType('expense');
+                  }}
+                  onOpenInvoiceWithClient={(client) => {
+                    setInvoiceInitialClient(client);
+                    setInvoiceModalOpen(true);
+                  }}
+                />
+              )}
+
+              {activeTab === 'statements' && (
+                <StatementsView
+                  transactions={transactions}
+                  categories={categories}
+                  profile={profile}
                   isPremium={isPremium}
                   onUpgradeTrigger={handleUpgradeTrigger}
                 />
@@ -688,6 +957,7 @@ export default function App() {
                   profile={profile}
                   isPremium={isPremium}
                   onUpgradeTrigger={handleUpgradeTrigger}
+                  onNavigateTab={setActiveTab}
                 />
               )}
 
@@ -705,6 +975,7 @@ export default function App() {
                   categories={categories}
                   profile={profile}
                   recurringBills={recurringBills}
+                  clients={clients}
                   onRestoreData={handleRestoreData}
                   onImportTransactions={handleImportTransactions}
                   onResetToDemo={handleResetToDemo}
@@ -740,6 +1011,7 @@ export default function App() {
                   profile={profile}
                   transactionsCount={transactions.length}
                   onUpdateProfile={handleUpdateProfile}
+                  onNavigateTab={setActiveTab}
                 />
               )}
 
@@ -823,8 +1095,14 @@ export default function App() {
       {/* Client Invoice & Estimate Generator Modal */}
       <InvoiceModal
         isOpen={invoiceModalOpen}
-        onClose={() => setInvoiceModalOpen(false)}
+        onClose={() => {
+          setInvoiceInitialClient(null);
+          setInvoiceModalOpen(false);
+        }}
         profile={profile}
+        clients={clients}
+        initialSelectedClient={invoiceInitialClient}
+        onSaveClient={handleSaveClient}
         onRecordIncome={(tx) => handleAddTransaction(tx)}
       />
 
@@ -838,6 +1116,7 @@ export default function App() {
           setActiveTab('subscription');
         }}
         reasonMessage={upgradeReason}
+        onSubscriptionUpdated={handleUpdateProfile}
       />
     </div>
   );

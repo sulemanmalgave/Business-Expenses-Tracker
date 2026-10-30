@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   X
 } from 'lucide-react';
-import { Transaction, Category, UserProfile, RecurringBill } from '../types';
+import { Transaction, Category, UserProfile, RecurringBill, Client } from '../types';
 import { parseCSVData, formatCurrency } from '../utils/financeUtils';
 import { validateTransaction } from '../utils/financeCalculations';
 
@@ -24,11 +24,13 @@ interface BackupRestoreViewProps {
   categories: Category[];
   profile: UserProfile;
   recurringBills?: RecurringBill[];
+  clients?: Client[];
   onRestoreData: (
     restoredTransactions: Transaction[], 
     restoredCategories?: Category[], 
     restoredProfile?: UserProfile,
-    restoredBills?: RecurringBill[]
+    restoredBills?: RecurringBill[],
+    restoredClients?: Client[]
   ) => void;
   onImportTransactions: (imported: Omit<Transaction, 'id'>[]) => void;
   onResetToDemo: () => void;
@@ -46,6 +48,7 @@ interface BackupFilePayload {
   categories: Category[];
   profile: UserProfile;
   recurringBills?: RecurringBill[];
+  clients?: Client[];
 }
 
 export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
@@ -53,6 +56,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
   categories,
   profile,
   recurringBills = [],
+  clients = [],
   onRestoreData,
   onImportTransactions,
   onResetToDemo,
@@ -98,6 +102,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
         categories,
         profile,
         recurringBills,
+        clients,
       };
 
       const dateTag = new Date().toISOString().split('T')[0];
@@ -131,6 +136,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
 
         const rawTxs: any[] = Array.isArray(parsed.transactions) ? parsed.transactions : [];
         const rawCats: any[] = Array.isArray(parsed.categories) ? parsed.categories : [];
+        const rawClients: Client[] = Array.isArray(parsed.clients) ? parsed.clients : [];
 
         // Check for required transaction fields
         const validTxs: Transaction[] = [];
@@ -147,6 +153,8 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
               description: t.description || 'Restored Record',
               paymentMethod: t.paymentMethod,
               account: t.account,
+              clientId: t.clientId,
+              clientName: t.clientName,
               project: t.project,
               notes: t.notes,
               receipt: t.receipt,
@@ -180,6 +188,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
           categories: rawCats,
           profile: parsed.profile || profile,
           recurringBills: Array.isArray(parsed.recurringBills) ? parsed.recurringBills : [],
+          clients: rawClients,
         };
 
         setPendingRestore({
@@ -205,6 +214,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
         transactions,
         categories,
         profile,
+        clients,
       };
       localStorage.setItem('finance_app_pre_restore_safety_snapshot', JSON.stringify(emergencySnapshot));
     } catch (_) {}
@@ -214,11 +224,12 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
       pendingRestore.payload.transactions,
       pendingRestore.payload.categories,
       pendingRestore.payload.profile,
-      pendingRestore.payload.recurringBills
+      pendingRestore.payload.recurringBills,
+      pendingRestore.payload.clients
     );
 
     triggerMsg(
-      `Restored ${pendingRestore.payload.transactions.length} transactions and categories. Pre-restore safety snapshot saved.`,
+      `Restored ${pendingRestore.payload.transactions.length} transactions, categories, and clients. Pre-restore safety snapshot saved.`,
       'success'
     );
     setPendingRestore(null);
@@ -247,7 +258,19 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
       }
     }
 
-    onRestoreData(mergedTxs, mergedCats, undefined, pendingRestore.payload.recurringBills);
+    // Merge clients
+    const existingClientIds = new Set(clients.map((cl) => cl.id));
+    const existingClientNames = new Set(clients.map((cl) => cl.name.trim().toLowerCase()));
+    const mergedClients = [...clients];
+    if (pendingRestore.payload.clients) {
+      for (const cl of pendingRestore.payload.clients) {
+        if (!existingClientIds.has(cl.id) && !existingClientNames.has(cl.name.trim().toLowerCase())) {
+          mergedClients.push(cl);
+        }
+      }
+    }
+
+    onRestoreData(mergedTxs, mergedCats, undefined, pendingRestore.payload.recurringBills, mergedClients);
     triggerMsg(`Merged ${pendingRestore.newCount} new transactions into active ledger.`, 'success');
     setPendingRestore(null);
   };

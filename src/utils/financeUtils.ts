@@ -283,6 +283,7 @@ export const STORAGE_KEYS = {
   CATEGORIES: 'finance_app_categories',
   PROFILE: 'finance_app_profile',
   THEME: 'finance_app_theme',
+  CLIENTS: 'finance_app_clients',
 };
 
 // High-speed browser compression tool for receipts to avoid localStorage quota issues (exceeding 5MB)

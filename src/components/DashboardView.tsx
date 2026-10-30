@@ -14,7 +14,8 @@ import {
   Clock, 
   AlertCircle, 
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Transaction, UserProfile, RecurringBill } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
@@ -25,6 +26,7 @@ import {
   filterTransactions 
 } from '../utils/financeCalculations';
 import { evaluateRecurringBills } from '../utils/recurringService';
+import { isSubscriptionActive } from '../utils/subscriptionService';
 import { VisualChart } from './VisualChart';
 
 interface DashboardViewProps {
@@ -55,6 +57,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onClearAll,
 }) => {
   const [chartMode, setChartMode] = useState<'incomeVsExpense' | 'categoryBreakdown'>('incomeVsExpense');
+  const isPro = isSubscriptionActive(profile);
   const [selectedPeriod, setSelectedPeriod] = useState<
     'this_month' | 'last_month' | 'financial_year' | 'calendar_year' | 'all' | 'custom'
   >('this_month');
@@ -157,9 +160,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             onClick={onOpenBatchReceipts}
             className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors pointer-events-auto"
+            title="Scan and batch import receipts (Pro Feature)"
           >
             <Upload className="w-3.5 h-3.5" />
             <span>Batch Receipts</span>
+            {!isPro && (
+              <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-800 text-indigo-100 border border-indigo-400/40">
+                PRO
+              </span>
+            )}
           </button>
 
           {onOpenInvoices && (
@@ -178,6 +187,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             <FileText className="w-3.5 h-3.5" />
             <span>View Reports</span>
+          </button>
+
+          <button
+            onClick={() => onNavigate('statements')}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold transition-colors pointer-events-auto"
+            title="Download Account Statements and Monthly Income & Expense Reports"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Statements</span>
+            {!isPro && (
+              <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-200 text-blue-900 dark:bg-blue-950 dark:text-blue-300">
+                PRO
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -449,9 +472,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
                 <button
                   onClick={() => onNavigate('analytics')}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 pointer-events-auto shrink-0 pl-1"
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1.5 pointer-events-auto shrink-0 pl-1"
                 >
                   <span>BI Analytics</span>
+                  {!isPro && (
+                    <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                      PRO
+                    </span>
+                  )}
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -512,6 +540,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   Upcoming Bills
                 </h3>
+                {!isPro && (
+                  <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                    PRO
+                  </span>
+                )}
               </div>
               <button
                 onClick={onOpenRecurringBills}
