@@ -365,7 +365,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           {step === 'paypal_approval' && session && (
             <div className="space-y-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                  session.isSandbox 
+                    ? 'bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400' 
+                    : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                }`}>
                   <Globe className="w-5 h-5" />
                 </div>
                 <div>
@@ -376,8 +380,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         PayPal Sandbox Mode (developer.paypal.com)
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300/60">
-                        PayPal Live Production
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300/60">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        PayPal Live Production (Official Gateway)
                       </span>
                     )}
                   </div>
@@ -407,55 +412,103 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 )}
               </div>
 
-              {session.isSandbox && (
-                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
-                  <p className="font-bold flex items-center gap-1">
-                    <HelpCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>PayPal Sandbox Testing Instructions</span>
-                  </p>
-                  <p className="text-[10.5px] leading-relaxed opacity-90">
-                    Log in using any PayPal Sandbox Personal/Buyer account created in your PayPal Developer Dashboard (<code className="font-mono">sb-buyer...</code>). No real funds will be charged.
+              {session.isDevTestMode ? (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 space-y-1.5">
+                    <p className="font-bold flex items-center gap-1">
+                      <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Development Environment Notice</span>
+                    </p>
+                    <p className="text-[10.5px] leading-relaxed opacity-90">
+                      {session.diagnostic || 'PayPal credentials in server environment require configuration.'}
+                    </p>
+                    <p className="text-[10.5px] leading-relaxed opacity-90">
+                      To verify the application's full Pro feature suite (PDF statements, client profitability, advanced analytics), you can activate a test license below:
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isVerifying}
+                    onClick={handleCompleteDevTestPayment}
+                    className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 pointer-events-auto"
+                  >
+                    {isVerifying ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Verifying Development Session...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Activate Pro License (Development Test Mode)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  {session.isSandbox && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                      <p className="font-bold flex items-center gap-1">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>PayPal Sandbox Testing Instructions</span>
+                      </p>
+                      <p className="text-[10.5px] leading-relaxed opacity-90">
+                        Log in using any PayPal Sandbox Personal/Buyer account created in your PayPal Developer Dashboard (<code className="font-mono">sb-buyer...</code>). No real funds will be charged.
+                      </p>
+                    </div>
+                  )}
+
+                  {!session.isSandbox && (
+                    <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-900/40 text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+                      <p className="font-bold flex items-center gap-1">
+                        <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Official PayPal Authorization</span>
+                      </p>
+                      <p className="text-[10.5px] leading-relaxed opacity-90">
+                        Click below to securely authenticate with PayPal. You can use your PayPal account balance, connected bank, or debit/credit card.
+                      </p>
+                    </div>
+                  )}
+
+                  {session.checkoutUrl && (
+                    <a
+                      href={session.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3.5 px-4 rounded-xl bg-[#0070ba] hover:bg-[#005ea6] text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 pointer-events-auto"
+                    >
+                      <Lock className="w-4 h-4 text-white/90" />
+                      <span>Continue to PayPal Checkout Page</span>
+                      <ExternalLink className="w-4 h-4 ml-0.5" />
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isVerifying}
+                    onClick={handleCheckPayPalStatus}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 pointer-events-auto"
+                  >
+                    {isVerifying ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Verifying Subscription Status with PayPal...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>I have Approved on PayPal — Verify Status</span>
+                      </>
+                    )}
+                  </button>
+
+                  <p className="text-[10.5px] text-center text-slate-400 leading-snug">
+                    Polling PayPal servers automatically every 4 seconds. Once approved, Pro features unlock immediately.
                   </p>
                 </div>
               )}
-
-              {/* Action Buttons: Genuine PayPal window trigger and verification */}
-              <div className="space-y-2.5 pt-1">
-                {session.checkoutUrl && (
-                  <a
-                    href={session.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-3.5 px-4 rounded-xl bg-[#0070ba] hover:bg-[#005ea6] text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 pointer-events-auto"
-                  >
-                    <span>Launch PayPal Checkout Page</span>
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
-
-                <button
-                  type="button"
-                  disabled={isVerifying}
-                  onClick={handleCheckPayPalStatus}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 pointer-events-auto"
-                >
-                  {isVerifying ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Verifying Subscription Status with PayPal...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>I have Approved on PayPal — Verify Now</span>
-                    </>
-                  )}
-                </button>
-
-                <p className="text-[10.5px] text-center text-slate-400 leading-snug">
-                  Waiting for buyer authorization. Once approved in PayPal, Pro status unlocks automatically.
-                </p>
-              </div>
 
               {errorMessage && (
                 <div className="p-2.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-300 rounded-xl text-xs flex items-center gap-2">

@@ -1009,6 +1009,100 @@ const cancelledPayPalProfile: UserProfile = {
 assert(isSubscriptionActive(cancelledPayPalProfile) === true, 'Cancelled PayPal subscription remains active until period end');
 assert(isFeatureAllowed(cancelledPayPalProfile, 'pdf_account_statements').allowed === true, 'Pro features remain accessible until expiry date after PayPal cancellation');
 
+// ==========================================
+// SUITE 27: 6-DIGIT PIN AUTHENTICATION & LOGIN
+// ==========================================
+console.log('\n[Suite 27: 6-Digit PIN Authentication & Login]');
+
+// Setup storage mocks for node test runner
+const memoryLocalStorage = new Map<string, string>();
+const memorySessionStorage = new Map<string, string>();
+(globalThis as any).window = (globalThis as any).window || { crypto: (globalThis as any).crypto };
+(globalThis as any).localStorage = {
+  getItem: (key: string) => memoryLocalStorage.get(key) || null,
+  setItem: (key: string, val: string) => memoryLocalStorage.set(key, String(val)),
+  removeItem: (key: string) => memoryLocalStorage.delete(key),
+  clear: () => memoryLocalStorage.clear(),
+};
+(globalThis as any).sessionStorage = {
+  getItem: (key: string) => memorySessionStorage.get(key) || null,
+  setItem: (key: string, val: string) => memorySessionStorage.set(key, String(val)),
+  removeItem: (key: string) => memorySessionStorage.delete(key),
+  clear: () => memorySessionStorage.clear(),
+};
+
+const { 
+  setupCredentials, 
+  verifyPin, 
+  changePin, 
+  recoverPinWithAnswer, 
+  isSessionUnlocked, 
+  lockSession, 
+  getAuthRecord, 
+  resetAuthData 
+} = await import('../src/utils/authService');
+
+resetAuthData();
+assert(getAuthRecord() === null, 'Auth record starts as unconfigured');
+
+// 1. Validation tests
+const emptyNameRes = await setupCredentials('', '123456');
+assert(emptyNameRes.success === false, 'Setup rejects empty user name');
+
+const shortPinRes = await setupCredentials('Suleman', '12345');
+assert(shortPinRes.success === false, 'Setup rejects PIN with fewer than 6 digits');
+
+const alphaPinRes = await setupCredentials('Suleman', '12345A');
+assert(alphaPinRes.success === false, 'Setup rejects non-numeric PIN');
+
+// 2. Successful Registration
+const setupRes = await setupCredentials('Suleman', '789123', 'Favorite city?', 'Bengaluru');
+assert(setupRes.success === true, 'Setup succeeds with valid 6-digit PIN and user name');
+
+const createdRecord = getAuthRecord();
+assert(createdRecord !== null, 'Saved auth record exists');
+assert(createdRecord?.userName === 'Suleman', 'Auth record preserves user name');
+assert(createdRecord?.isConfigured === true, 'Auth record is marked as configured');
+assert(createdRecord?.pinHash !== '789123', 'Plaintext PIN is never stored directly');
+assert(createdRecord?.salt && createdRecord.salt.length > 8, 'Cryptographic salt is generated');
+
+// 3. Verification tests
+const wrongPinMatch = await verifyPin('111111');
+assert(wrongPinMatch === false, 'Incorrect 6-digit PIN is rejected');
+
+const correctPinMatch = await verifyPin('789123');
+assert(correctPinMatch === true, 'Correct 6-digit PIN verifies successfully');
+assert(isSessionUnlocked() === true, 'Session becomes unlocked after successful verification');
+
+// 4. Session Locking
+lockSession();
+assert(isSessionUnlocked() === false, 'lockSession() locks the workspace');
+
+// Re-verify unlocks again
+await verifyPin('789123');
+assert(isSessionUnlocked() === true, 'Re-verifying PIN unlocks session again');
+
+// 5. Change PIN
+const wrongOldPinRes = await changePin('000000', '654321', '654321');
+assert(wrongOldPinRes.success === false, 'Change PIN fails when current PIN is incorrect');
+
+const mismatchNewPinRes = await changePin('789123', '654321', '654322');
+assert(mismatchNewPinRes.success === false, 'Change PIN fails when new PIN and confirmation mismatch');
+
+const validChangeRes = await changePin('789123', '654321', '654321');
+assert(validChangeRes.success === true, 'Change PIN succeeds with valid old PIN and matching new PIN');
+
+assert(await verifyPin('789123') === false, 'Old PIN no longer authenticates after change');
+assert(await verifyPin('654321') === true, 'New PIN authenticates successfully');
+
+// 6. Recovery Question
+const wrongAnswerRes = await recoverPinWithAnswer('Mumbai', '112233', '112233');
+assert(wrongAnswerRes.success === false, 'Recovery fails with incorrect security answer');
+
+const validRecoveryRes = await recoverPinWithAnswer('Bengaluru', '998877', '998877');
+assert(validRecoveryRes.success === true, 'Recovery succeeds with correct security answer and resets PIN');
+assert(await verifyPin('998877') === true, 'Newly recovered PIN authenticates successfully');
+
 // SUMMARY
 console.log('\n========================================');
 console.log(`TEST RESULTS: ${passedTests} PASSED, ${failedTests} FAILED (TOTAL: ${totalTests})`);

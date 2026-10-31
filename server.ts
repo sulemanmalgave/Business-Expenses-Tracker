@@ -42,21 +42,122 @@ app.use(express.json());
 // 1. PAYPAL CLIENT & AUTO-PLAN RESOLUTION
 // ==========================================
 
-function getPayPalEnvironment(): 'sandbox' | 'live' {
-  const mode = (process.env.PAYPAL_MODE || process.env.PAYPAL_ENVIRONMENT || '').toLowerCase();
-  if (mode === 'live' || mode === 'production') {
-    return 'live';
+interface VerifiedPayPalSetup {
+  clientId: string;
+  clientSecret: string;
+  environment: 'live' | 'sandbox';
+  baseUrl: string;
+  webUrl: string;
+  token: string;
+  expiresAt: number;
+}
+
+let cachedPayPalSetup: VerifiedPayPalSetup | null = null;
+let payPalSetupError: string | null = null;
+
+async function resolvePayPalSetup(forceRefresh = false): Promise<VerifiedPayPalSetup | null> {
+  if (!forceRefresh && cachedPayPalSetup && Date.now() < cachedPayPalSetup.expiresAt - 60000) {
+    return cachedPayPalSetup;
   }
-  return 'sandbox';
+
+  const rawA = (process.env.PAYPAL_CLIENT_ID || '').trim();
+  const rawB = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
+
+  if (!rawA || !rawB) {
+    payPalSetupError = 'PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is missing in environment variables.';
+    return null;
+  }
+
+  if (rawA === rawB) {
+    payPalSetupError = 'PAYPAL_CLIENT_SECRET appears identical to PAYPAL_CLIENT_ID. PayPal Client Secret must be your secret key from developer.paypal.com, not the client ID.';
+    return null;
+  }
+
+  // Candidate credential pairs:
+  // Pair 1: Normal (A is Client ID, B is Secret)
+  // Pair 2: Swapped (B is Client ID, A is Secret) - accommodates when user pasted Client ID into Secret and vice-versa
+  const candidatePairs = [
+    { clientId: rawA, clientSecret: rawB, swapped: false },
+    { clientId: rawB, clientSecret: rawA, swapped: true },
+  ];
+
+  // Preferred environment if explicitly configured; defaults to testing live first then sandbox
+  const explicitEnv = (process.env.PAYPAL_MODE || process.env.PAYPAL_ENVIRONMENT || '').toLowerCase();
+  const envsToTest: ('live' | 'sandbox')[] =
+    explicitEnv === 'sandbox'
+      ? ['sandbox', 'live']
+      : explicitEnv === 'live' || explicitEnv === 'production'
+      ? ['live', 'sandbox']
+      : ['live', 'sandbox'];
+
+  for (const env of envsToTest) {
+    const baseUrl = env === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+    const webUrl = env === 'live' ? 'https://www.paypal.com' : 'https://www.sandbox.paypal.com';
+
+    for (const pair of candidatePairs) {
+      try {
+        const auth = Buffer.from(`${pair.clientId}:${pair.clientSecret}`).toString('base64');
+        const res = await fetch(`${baseUrl}/v1/oauth2/token`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.access_token) {
+            cachedPayPalSetup = {
+              clientId: pair.clientId,
+              clientSecret: pair.clientSecret,
+              environment: env,
+              baseUrl,
+              webUrl,
+              token: data.access_token,
+              expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+            };
+            payPalSetupError = null;
+            if (pair.swapped) {
+              console.log(`[PayPal] Successfully auto-detected and aligned swapped credentials in ${env.toUpperCase()} environment.`);
+            } else {
+              console.log(`[PayPal] Successfully authenticated with PayPal in ${env.toUpperCase()} environment.`);
+            }
+            return cachedPayPalSetup;
+          }
+        }
+      } catch (err: any) {
+        // Continue testing other combinations
+      }
+    }
+  }
+
+  payPalSetupError = 'PayPal OAuth rejected credentials. Verify your Client ID and Secret in developer.paypal.com.';
+  return null;
+}
+
+function getPayPalEnvironment(): 'sandbox' | 'live' {
+  if (cachedPayPalSetup) {
+    return cachedPayPalSetup.environment;
+  }
+  const mode = (process.env.PAYPAL_MODE || process.env.PAYPAL_ENVIRONMENT || '').toLowerCase();
+  return (mode === 'live' || mode === 'production') ? 'live' : 'sandbox';
 }
 
 function getPayPalBaseUrl(): string {
+  if (cachedPayPalSetup) {
+    return cachedPayPalSetup.baseUrl;
+  }
   return getPayPalEnvironment() === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 }
 
 function getPayPalWebUrl(): string {
+  if (cachedPayPalSetup) {
+    return cachedPayPalSetup.webUrl;
+  }
   return getPayPalEnvironment() === 'live'
     ? 'https://www.paypal.com'
     : 'https://www.sandbox.paypal.com';
@@ -66,54 +167,21 @@ interface PayPalAuthResult {
   token: string | null;
   error?: string;
   statusCode?: number;
+  environment?: 'live' | 'sandbox';
+  clientId?: string;
 }
 
 async function getPayPalAuthDetails(): Promise<PayPalAuthResult> {
-  const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
-  const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
-
-  if (!clientId || !clientSecret) {
-    return { token: null, error: 'PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is missing in environment variables.' };
+  const setup = await resolvePayPalSetup();
+  if (setup && setup.token) {
+    return { token: setup.token, environment: setup.environment, clientId: setup.clientId };
   }
-
-  if (clientId === clientSecret) {
-    return { 
-      token: null, 
-      error: 'PAYPAL_CLIENT_SECRET appears identical to PAYPAL_CLIENT_ID. PayPal Client Secret must be your secret key from developer.paypal.com, not the client ID.' 
-    };
-  }
-
-  try {
-    const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const res = await fetch(`${getPayPalBaseUrl()}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: 'grant_type=client_credentials',
-    });
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      const errDesc = errBody.error_description || errBody.error || `HTTP ${res.status}`;
-      return { 
-        token: null, 
-        statusCode: res.status, 
-        error: `PayPal OAuth rejected credentials (${errDesc}). Verify sandbox/live credentials in developer.paypal.com.` 
-      };
-    }
-
-    const data = await res.json();
-    return { token: data.access_token || null };
-  } catch (err: any) {
-    return { token: null, error: err.message || 'Network error reaching PayPal OAuth API.' };
-  }
+  return { token: null, error: payPalSetupError || 'PayPal authentication failed. Check credentials in developer.paypal.com.' };
 }
 
 async function getPayPalAccessToken(): Promise<string | null> {
-  const auth = await getPayPalAuthDetails();
-  return auth.token;
+  const setup = await resolvePayPalSetup();
+  return setup ? setup.token : null;
 }
 
 // In-memory cache for dynamically discovered/created PayPal plan IDs
@@ -125,15 +193,27 @@ async function getOrCreatePayPalPlan(planCode: 'pro_monthly' | 'pro_yearly'): Pr
     return paypalPlanCache.get(planCode)!;
   }
 
-  const accessToken = await getPayPalAccessToken();
-  if (!accessToken) {
+  const setup = await resolvePayPalSetup();
+  if (!setup || !setup.token) {
     throw new Error('Cannot resolve PayPal subscription plan without valid PayPal access token.');
   }
 
-  const baseUrl = getPayPalBaseUrl();
+  const accessToken = setup.token;
+  const baseUrl = setup.baseUrl;
   const isMonthly = planCode === 'pro_monthly';
   const targetPrice = isMonthly ? '2.99' : '29.99';
   const targetUnit = isMonthly ? 'MONTH' : 'YEAR';
+
+  // Seed known pre-created plans on live environment for instant response
+  if (setup.environment === 'live') {
+    if (isMonthly) {
+      paypalPlanCache.set('pro_monthly', 'P-73M4264782419510TNLS4VEA');
+      return 'P-73M4264782419510TNLS4VEA';
+    } else {
+      paypalPlanCache.set('pro_yearly', 'P-7CF62019K50503139NLS4VEA');
+      return 'P-7CF62019K50503139NLS4VEA';
+    }
+  }
 
   // 1. Ensure Catalog Product exists
   if (!paypalProductIdCache) {
@@ -330,19 +410,21 @@ async function getOrCreateRazorpayPlan(planCode: 'pro_monthly' | 'pro_yearly'): 
 app.get('/api/billing/config', async (_req: Request, res: Response) => {
   const hasRazorpay = !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
   const hasPayPal = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
-  const payPalEnv = getPayPalEnvironment();
+  
+  const auth = await getPayPalAuthDetails();
+  const payPalEnv = auth.environment || getPayPalEnvironment();
+  const isLive = payPalEnv === 'live';
 
   // Test token status dynamically so UI can display real connection status
   let payPalAuthStatus: 'connected' | 'auth_failed' | 'not_configured' = 'not_configured';
   let payPalErrorMessage: string | undefined = undefined;
 
   if (hasPayPal) {
-    const auth = await getPayPalAuthDetails();
     if (auth.token) {
       payPalAuthStatus = 'connected';
     } else {
       payPalAuthStatus = 'auth_failed';
-      payPalErrorMessage = auth.error || 'PayPal authentication failed. Verify sandbox credentials in developer.paypal.com.';
+      payPalErrorMessage = auth.error || 'PayPal authentication failed. Verify credentials in developer.paypal.com.';
     }
   }
 
@@ -355,10 +437,10 @@ app.get('/api/billing/config', async (_req: Request, res: Response) => {
         keyId: process.env.RAZORPAY_KEY_ID || undefined,
       },
       paypal: {
-        enabled: hasPayPal,
+        enabled: hasPayPal && payPalAuthStatus === 'connected',
         mode: payPalEnv,
-        isSandbox: payPalEnv === 'sandbox',
-        clientId: process.env.PAYPAL_CLIENT_ID || undefined,
+        isSandbox: !isLive,
+        clientId: auth.clientId || process.env.PAYPAL_CLIENT_ID || undefined,
         authStatus: payPalAuthStatus,
         errorMessage: payPalErrorMessage,
       },
@@ -495,7 +577,7 @@ app.post('/api/billing/create-checkout-session', async (req: Request, res: Respo
     const hasPayPalKeys = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
     const authDetails = await getPayPalAuthDetails();
 
-    // If PayPal keys are not fully ready or identical, provide separated dev testing mode
+    // If PayPal keys are not fully ready, provide separated dev testing mode
     if (!hasPayPalKeys || !authDetails.token) {
       res.json({
         success: true,
@@ -517,6 +599,9 @@ app.post('/api/billing/create-checkout-session', async (req: Request, res: Respo
     }
 
     const accessToken = authDetails.token;
+    const isLive = authDetails.environment === 'live';
+    const payPalMode = authDetails.environment || getPayPalEnvironment();
+
     let planId: string;
     try {
       planId = await getOrCreatePayPalPlan(planCode);
@@ -530,7 +615,6 @@ app.post('/api/billing/create-checkout-session', async (req: Request, res: Respo
 
     // Determine public app origin for return and cancel redirects
     const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}` || 'http://localhost:3000';
-    const payPalMode = getPayPalEnvironment();
 
     const paypalRes = await fetch(`${getPayPalBaseUrl()}/v1/billing/subscriptions`, {
       method: 'POST',
@@ -576,7 +660,8 @@ app.post('/api/billing/create-checkout-session', async (req: Request, res: Respo
       sessionId,
       provider: 'paypal',
       mode: payPalMode,
-      isSandbox: payPalMode === 'sandbox',
+      isSandbox: !isLive,
+      isDevTestMode: false,
       amount,
       currency,
       planCode,
@@ -584,7 +669,7 @@ app.post('/api/billing/create-checkout-session', async (req: Request, res: Respo
       interval,
       subscriptionId: ppData.id,
       planId,
-      clientId: process.env.PAYPAL_CLIENT_ID,
+      clientId: authDetails.clientId || process.env.PAYPAL_CLIENT_ID,
       checkoutUrl: approveLink,
       token,
     });

@@ -18,10 +18,13 @@ import {
   HardDrive,
   Download,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { Category, UserProfile } from '../types';
 import { DEFAULT_CURRENCIES } from '../utils/financeUtils';
+import { changePin } from '../utils/authService';
 
 interface SettingsViewProps {
   profile: UserProfile;
@@ -91,6 +94,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Category Builder
   const [newCatName, setNewCatName] = useState('');
   const [newCatType, setNewCatType] = useState<'income' | 'expense'>('expense');
+
+  // Security & 6-Digit PIN state
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [pinChangeMsg, setPinChangeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isUpdatingPin, setIsUpdatingPin] = useState(false);
+
+  const handleChangePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeMsg(null);
+    setIsUpdatingPin(true);
+    try {
+      const res = await changePin(currentPinInput, newPinInput, confirmPinInput);
+      if (res.success) {
+        setPinChangeMsg({ type: 'success', text: '6-Digit PIN successfully updated!' });
+        setCurrentPinInput('');
+        setNewPinInput('');
+        setConfirmPinInput('');
+      } else {
+        setPinChangeMsg({ type: 'error', text: res.error || 'Failed to update PIN.' });
+      }
+    } catch (err: any) {
+      setPinChangeMsg({ type: 'error', text: err.message || 'Error updating PIN.' });
+    } finally {
+      setIsUpdatingPin(false);
+    }
+  };
 
   const customCategories = categories.filter((c) => c.isCustom);
 
@@ -449,6 +480,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Box 3: Security & 6-Digit PIN Management */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-blue-500" />
+                  <span>Security & 6-Digit PIN</span>
+                </h3>
+                <p className="text-[10px] text-slate-400">Manage your workspace access credentials</p>
+              </div>
+              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                Active PIN Protection
+              </span>
+            </div>
+
+            <form onSubmit={handleChangePinSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Current 6-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  required
+                  placeholder="Enter current 6 numbers"
+                  value={currentPinInput}
+                  onChange={(e) => setCurrentPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    New 6-Digit PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    required
+                    placeholder="New 6 numbers"
+                    value={newPinInput}
+                    onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Confirm New PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    required
+                    placeholder="Re-enter 6 numbers"
+                    value={confirmPinInput}
+                    onChange={(e) => setConfirmPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono tracking-widest text-center text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {pinChangeMsg && (
+                <div className={`p-2 rounded-xl text-xs flex items-center gap-1.5 ${
+                  pinChangeMsg.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                }`}>
+                  {pinChangeMsg.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+                  <span>{pinChangeMsg.text}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isUpdatingPin || newPinInput.length !== 6 || newPinInput !== confirmPinInput || !currentPinInput}
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors pointer-events-auto cursor-pointer"
+              >
+                {isUpdatingPin ? 'Updating PIN...' : 'Update 6-Digit PIN'}
+              </button>
+            </form>
           </div>
         </div>
       </div>

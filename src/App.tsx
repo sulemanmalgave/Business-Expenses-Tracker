@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   Calendar,
   FileSpreadsheet,
-  Users
+  Users,
+  Lock
 } from 'lucide-react';
 
 import { Transaction, Category, UserProfile, RecurringBill, Client } from './types';
@@ -28,7 +29,7 @@ import {
   DEFAULT_CATEGORIES, 
   DEFAULT_PROFILE, 
   STORAGE_KEYS, 
-  getStarterTransactions,
+  getStarterTransactions, 
   formatCurrency 
 } from './utils/financeUtils';
 import { 
@@ -41,6 +42,7 @@ import {
 } from './utils/indexedDbStorage';
 import { processBillPayment } from './utils/recurringService';
 import { isSubscriptionActive, verifyPaymentOnServer } from './utils/subscriptionService';
+import { isSessionUnlocked, lockSession, getAuthRecord } from './utils/authService';
 
 // Modular Views
 import { DashboardView } from './components/DashboardView';
@@ -62,6 +64,7 @@ import { HelpSupportView } from './components/HelpSupportView';
 import { BatchReceiptModal } from './components/BatchReceiptModal';
 import { RecurringBillsModal } from './components/RecurringBillsModal';
 import { InvoiceModal } from './components/InvoiceModal';
+import { AuthScreen } from './components/AuthScreen';
 
 export default function App() {
   // Navigation active tab State
@@ -102,6 +105,29 @@ export default function App() {
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
+
+  // 6-digit PIN Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return isSessionUnlocked();
+  });
+
+  const handleAuthenticated = (userName: string) => {
+    setIsAuthenticated(true);
+    if (!profile.ownerName || profile.ownerName === 'Business Owner') {
+      handleUpdateProfile({
+        ...profile,
+        ownerName: userName,
+        onboarded: true,
+      });
+    }
+  };
+
+  const handleLockApp = () => {
+    lockSession();
+    setIsAuthenticated(false);
+    setProfileMenuOpen(false);
+  };
 
   // Time tracker for header
   const [systemTime, setSystemTime] = useState(new Date());
@@ -514,6 +540,16 @@ export default function App() {
 
   const ActiveIcon = NAV_ITEMS.find((n) => n.id === activeTab)?.icon || Layers;
 
+  // Enforce 6-digit PIN login before app access
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        onAuthenticated={handleAuthenticated}
+        initialUserName={profile.ownerName && profile.ownerName !== 'Business Owner' ? profile.ownerName : ''}
+      />
+    );
+  }
+
   if (profile && profile.onboarded === false && isDataLoaded) {
     return (
       <OnboardingWizard
@@ -764,6 +800,16 @@ export default function App() {
               <span>Invoices</span>
             </button>
 
+            {/* Lock Workspace Header Button */}
+            <button
+              onClick={handleLockApp}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 text-xs font-semibold transition-colors pointer-events-auto cursor-pointer"
+              title="Lock workspace with 6-digit PIN"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+              <span className="hidden sm:inline">Lock</span>
+            </button>
+
             {/* User Profile dropdown */}
             <div className="relative">
               <button
@@ -816,6 +862,15 @@ export default function App() {
                       {item.label}
                     </button>
                   ))}
+                  <div className="pt-1 mt-1 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      onClick={handleLockApp}
+                      className="w-full text-left px-4 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 pointer-events-auto transition-colors flex items-center space-x-2"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Lock Workspace</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
