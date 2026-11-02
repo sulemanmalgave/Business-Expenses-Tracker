@@ -20,7 +20,10 @@ import {
   getPlanPricing,
   detectLikelyBillingCountry,
   REGIONAL_PRICING,
-  PLAN_METADATA
+  PLAN_METADATA,
+  FREE_LIMITS,
+  getEntitlementPlan,
+  checkFeatureEntitlement
 } from '../src/utils/subscriptionService';
 import { Transaction, RecurringBill, UserProfile, Client } from '../src/types';
 import { 
@@ -405,11 +408,11 @@ assert(freeBackup.allowed === true, 'Free users are never locked out of JSON bac
 const freePdf = isFeatureAllowed(freeProfile, 'pdf_reports');
 assert(freePdf.allowed === true, 'Free users can print/save PDF reports without paywalls');
 
-const freeUnder500 = isFeatureAllowed(freeProfile, 'unlimited_transactions', 350);
-assert(freeUnder500.allowed === true, 'Free users can log up to 500 transactions (350 allowed)');
+const freeUnder50 = isFeatureAllowed(freeProfile, 'unlimited_transactions', 35);
+assert(freeUnder50.allowed === true, 'Free users can log up to 50 transactions (35 allowed)');
 
-const freeOver500 = isFeatureAllowed(freeProfile, 'unlimited_transactions', 505);
-assert(freeOver500.allowed === false, 'Free quota warns gracefully when exceeding 500 transactions');
+const freeOver50 = isFeatureAllowed(freeProfile, 'unlimited_transactions', 55);
+assert(freeOver50.allowed === false, 'Free quota warns gracefully when exceeding 50 transactions');
 
 const freeMultiBiz = isFeatureAllowed(freeProfile, 'multiple_businesses');
 assert(freeMultiBiz.allowed === false, 'Multiple business entity management requires Pro license');
@@ -1102,6 +1105,220 @@ assert(wrongAnswerRes.success === false, 'Recovery fails with incorrect security
 const validRecoveryRes = await recoverPinWithAnswer('Bengaluru', '998877', '998877');
 assert(validRecoveryRes.success === true, 'Recovery succeeds with correct security answer and resets PIN');
 assert(await verifyPin('998877') === true, 'Newly recovered PIN authenticates successfully');
+
+// ==========================================
+// SUITE 28: FEATURE ACCESS & ENTITLEMENT SYSTEM (10 USER SCENARIOS)
+// ==========================================
+console.log('\n[Suite 28: Feature Access & Entitlement System]');
+
+// Scenario 1: New user default profile is on Free plan
+const defaultFreeProfile: UserProfile = {
+  businessName: 'Apex Innovations',
+  ownerName: 'Priya Sharma',
+  currency: 'INR',
+  email: 'priya@apex.example',
+  taxRate: 18,
+  subscriptionPlan: 'free',
+  subscriptionStatus: 'expired',
+};
+assert(getEntitlementPlan(defaultFreeProfile) === 'FREE', 'Scenario 1: New user is placed on canonical FREE plan');
+assert(isSubscriptionActive(defaultFreeProfile) === false, 'Scenario 1: New user subscription is not active Pro');
+assert(FREE_LIMITS.transactions === 50, 'Scenario 1: Exact Free transaction limit is 50');
+assert(FREE_LIMITS.clients === 3, 'Scenario 1: Exact Free client limit is 3');
+assert(FREE_LIMITS.invoices === 3, 'Scenario 1: Exact Free invoice limit is 3');
+assert(FREE_LIMITS.recurringBills === 1, 'Scenario 1: Exact Free recurring obligation limit is 1');
+
+// Scenario 2: Free user reaching 50 transactions is blocked for new records, existing records remain safe
+const txCheckUnder = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_transactions', { transactions: 49 });
+assert(txCheckUnder.allowed === true, 'Scenario 2: Free user with 49 transactions can record 50th transaction');
+
+const txCheckLimit = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_transactions', { transactions: 50 });
+assert(txCheckLimit.allowed === false, 'Scenario 2: Free user with 50 transactions is blocked from adding 51st transaction');
+assert(txCheckLimit.requiresUpgrade === true, 'Scenario 2: Transaction limit triggers Pro upgrade');
+assert(txCheckLimit.limit === 50, 'Scenario 2: Result reports exact limit of 50');
+
+// Existing records are NEVER locked from viewing or reporting
+assert(isFeatureAllowed(defaultFreeProfile, 'income_tracking').allowed === true, 'Scenario 2: Free user retains full income ledger access');
+assert(isFeatureAllowed(defaultFreeProfile, 'expense_tracking').allowed === true, 'Scenario 2: Free user retains full expense ledger access');
+assert(isFeatureAllowed(defaultFreeProfile, 'basic_history').allowed === true, 'Scenario 2: Free user retains complete historical records viewing');
+
+// Scenario 3: Free user reaching 3 clients is blocked from adding a 4th client
+const clientCheckUnder = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 2 });
+assert(clientCheckUnder.allowed === true, 'Scenario 3: Free user with 2 clients can add 3rd client');
+
+const clientCheckLimit = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 3 });
+assert(clientCheckLimit.allowed === false, 'Scenario 3: Free user with 3 clients is blocked from adding 4th client');
+assert(clientCheckLimit.requiresUpgrade === true, 'Scenario 3: Client limit triggers Pro upgrade');
+
+// Scenario 4: Free user reaching 3 invoices is blocked from generating a 4th invoice
+const invoiceCheckUnder = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_invoices', { invoices: 2 });
+assert(invoiceCheckUnder.allowed === true, 'Scenario 4: Free user with 2 invoices can record 3rd invoice');
+
+const invoiceCheckLimit = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_invoices', { invoices: 3 });
+assert(invoiceCheckLimit.allowed === false, 'Scenario 4: Free user with 3 invoices is blocked from recording 4th invoice');
+assert(invoiceCheckLimit.requiresUpgrade === true, 'Scenario 4: Invoice limit triggers Pro upgrade');
+
+// Scenario 5: Free user cannot access Pro-only features
+assert(checkFeatureEntitlement(defaultFreeProfile, 'advanced_analytics').allowed === false, 'Scenario 5: Free user blocked from advanced analytics');
+assert(checkFeatureEntitlement(defaultFreeProfile, 'pdf_account_statements').allowed === false, 'Scenario 5: Free user blocked from bank-grade PDF account statements');
+assert(checkFeatureEntitlement(defaultFreeProfile, 'custom_date_statements').allowed === false, 'Scenario 5: Free user blocked from custom date range statements');
+assert(checkFeatureEntitlement(defaultFreeProfile, 'batch_receipt_ocr').allowed === false, 'Scenario 5: Free user blocked from batch receipt OCR');
+assert(checkFeatureEntitlement(defaultFreeProfile, 'client_project_profitability').allowed === false, 'Scenario 5: Free user blocked from deep client profitability breakdown');
+
+// Scenario 6: Active Pro user (Monthly and Yearly) receives complete Pro entitlement
+const proFutureDate = new Date();
+proFutureDate.setDate(proFutureDate.getDate() + 30);
+
+const verifiedProMonthlyProfile: UserProfile = {
+  ...defaultFreeProfile,
+  subscriptionPlan: 'PRO_MONTHLY',
+  subscriptionStatus: 'active',
+  subscriptionExpiry: proFutureDate.toISOString().split('T')[0],
+  subscriptionId: 'sub_live_monthly_456',
+  subscriptionProvider: 'razorpay',
+};
+assert(getEntitlementPlan(verifiedProMonthlyProfile) === 'PRO_MONTHLY', 'Scenario 6: Active Pro Monthly returns canonical PRO_MONTHLY');
+assert(isSubscriptionActive(verifiedProMonthlyProfile) === true, 'Scenario 6: Active Pro Monthly is active');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_transactions', { transactions: 1000 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited transactions beyond 50');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_clients', { clients: 50 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited clients beyond 3');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_invoices', { invoices: 100 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited invoices beyond 3');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'advanced_analytics').allowed === true, 'Scenario 6: Pro Monthly unlocks advanced analytics');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'pdf_account_statements').allowed === true, 'Scenario 6: Pro Monthly unlocks PDF statements');
+
+const verifiedProYearlyProfile: UserProfile = {
+  ...defaultFreeProfile,
+  subscriptionPlan: 'PRO_YEARLY',
+  subscriptionStatus: 'active',
+  subscriptionExpiry: proFutureDate.toISOString().split('T')[0],
+  subscriptionId: 'sub_live_yearly_789',
+  subscriptionProvider: 'paypal',
+};
+assert(getEntitlementPlan(verifiedProYearlyProfile) === 'PRO_YEARLY', 'Scenario 6: Active Pro Yearly returns canonical PRO_YEARLY');
+assert(checkFeatureEntitlement(verifiedProYearlyProfile, 'unlimited_transactions', { transactions: 20000 }).allowed === true, 'Scenario 6: Pro Yearly has unlimited transactions');
+
+// Scenario 7: Cancelled subscription remains entitled to Pro until paid expiry date (grace period)
+const cancelledProWithFutureExpiry: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionStatus: 'cancelled',
+  cancelAtPeriodEnd: true,
+};
+assert(isSubscriptionActive(cancelledProWithFutureExpiry) === true, 'Scenario 7: Cancelled Pro remains active until paid expiry date');
+assert(getEntitlementPlan(cancelledProWithFutureExpiry) === 'PRO_MONTHLY', 'Scenario 7: Retains PRO_MONTHLY during grace period');
+assert(checkFeatureEntitlement(cancelledProWithFutureExpiry, 'advanced_analytics').allowed === true, 'Scenario 7: Pro features remain accessible during grace period');
+
+// Scenario 8: Expired subscription reverts back to Free plan; existing data is preserved
+const proPastDate = new Date();
+proPastDate.setDate(proPastDate.getDate() - 2);
+
+const expiredProProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionExpiry: proPastDate.toISOString().split('T')[0],
+  subscriptionStatus: 'expired',
+};
+assert(isSubscriptionActive(expiredProProfile) === false, 'Scenario 8: Expired subscription is not active');
+assert(getEntitlementPlan(expiredProProfile) === 'FREE', 'Scenario 8: Expired subscription reverts to canonical FREE plan');
+assert(checkFeatureEntitlement(expiredProProfile, 'advanced_analytics').allowed === false, 'Scenario 8: Expired user blocked from Pro analytics');
+assert(checkFeatureEntitlement(expiredProProfile, 'unlimited_transactions', { transactions: 60 }).allowed === false, 'Scenario 8: Expired user blocked from adding new transactions beyond 50');
+
+// Scenario 9: Failed, pending, suspended, or unverified payments must not receive Pro access
+const pendingProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionStatus: 'pending',
+};
+assert(isSubscriptionActive(pendingProfile) === false, 'Scenario 9: Pending payment is not active Pro');
+assert(getEntitlementPlan(pendingProfile) === 'FREE', 'Scenario 9: Pending payment returns FREE');
+
+const suspendedProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionStatus: 'suspended',
+};
+assert(isSubscriptionActive(suspendedProfile) === false, 'Scenario 9: Suspended subscription is not active Pro');
+
+const failedProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionStatus: 'failed',
+};
+assert(isSubscriptionActive(failedProfile) === false, 'Scenario 9: Failed payment is not active Pro');
+
+// Scenario 10: Permanent Free Data Protection - CSV export, Excel export, and Backup & Restore are NEVER blocked
+assert(isFeatureAllowed(defaultFreeProfile, 'csv_export').allowed === true, 'Scenario 10: Free user always has CSV export');
+assert(isFeatureAllowed(defaultFreeProfile, 'excel_export').allowed === true, 'Scenario 10: Free user always has Excel export');
+assert(isFeatureAllowed(defaultFreeProfile, 'backup_restore').allowed === true, 'Scenario 10: Free user always has Backup & Restore');
+assert(isFeatureAllowed(expiredProProfile, 'csv_export').allowed === true, 'Scenario 10: Expired user always has CSV export');
+assert(isFeatureAllowed(expiredProProfile, 'backup_restore').allowed === true, 'Scenario 10: Expired user always has Backup & Restore');
+assert(isFeatureAllowed(expiredProProfile, 'basic_dashboard').allowed === true, 'Scenario 10: Expired user always has Basic Dashboard');
+
+// 29. HARDENED ENTITLEMENT SECURITY & AUDITED FEATURE MATRIX
+console.log('\n[Suite 29: Hardened Entitlement Security & Audited Feature Matrix]');
+
+// 1. Unrecognized or invalid plan codes strictly default to Free
+const unknownPlanProfile: UserProfile = {
+  ...defaultFreeProfile,
+  subscriptionPlan: 'enterprise' as any,
+  subscriptionStatus: 'active',
+};
+assert(isSubscriptionActive(unknownPlanProfile) === false, 'Suite 29: Unrecognized plan code rejects Pro');
+assert(getEntitlementPlan(unknownPlanProfile) === 'FREE', 'Suite 29: Unrecognized plan defaults to FREE');
+
+// 2. Unverified status strictly rejects Pro
+const unverifiedProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionStatus: 'unverified' as any,
+};
+assert(isSubscriptionActive(unverifiedProfile) === false, 'Suite 29: Unverified status rejects Pro');
+assert(getEntitlementPlan(unverifiedProfile) === 'FREE', 'Suite 29: Unverified status defaults to FREE');
+
+// 3. Past expiry date strictly rejects Pro
+const pastDateProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionExpiry: '2020-01-01',
+  subscriptionStatus: 'active',
+};
+assert(isSubscriptionActive(pastDateProfile) === false, 'Suite 29: Past expiry date rejects Pro');
+assert(getEntitlementPlan(pastDateProfile) === 'FREE', 'Suite 29: Past expiry date defaults to FREE');
+
+// 4. Cancelled subscription with past expiry date strictly rejects Pro
+const cancelledPastProfile: UserProfile = {
+  ...verifiedProMonthlyProfile,
+  subscriptionExpiry: '2021-05-15',
+  subscriptionStatus: 'cancelled',
+  cancelAtPeriodEnd: true,
+};
+assert(isSubscriptionActive(cancelledPastProfile) === false, 'Suite 29: Cancelled subscription with past date rejects Pro');
+assert(checkFeatureEntitlement(cancelledPastProfile, 'advanced_analytics').allowed === false, 'Suite 29: Cancelled past user blocked from Analytics');
+
+// 5. Active Pro Monthly unlocks Pro Analytics
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'advanced_analytics').allowed === true, 'Suite 29: Active Pro Monthly unlocks Analytics');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'advanced_analytics').requiresUpgrade === false, 'Suite 29: Pro does not require upgrade');
+
+// 6. Free user strictly blocked from Pro Analytics
+assert(checkFeatureEntitlement(defaultFreeProfile, 'advanced_analytics').allowed === false, 'Suite 29: Free user blocked from Analytics');
+assert(checkFeatureEntitlement(defaultFreeProfile, 'advanced_analytics').requiresUpgrade === true, 'Suite 29: Free user requires Pro upgrade');
+
+// 7. Full Free Feature Matrix Audit: All 8 core capabilities remain 100% free
+const auditedFreeFeatures = [
+  'income_tracking',
+  'expense_tracking',
+  'basic_dashboard',
+  'basic_summaries',
+  'basic_categories',
+  'client_management',
+  'basic_history',
+  'csv_export',
+  'backup_restore'
+] as const;
+
+for (const feat of auditedFreeFeatures) {
+  const freeCheck = checkFeatureEntitlement(defaultFreeProfile, feat);
+  assert(freeCheck.allowed === true, `Suite 29: Free user has unrestricted access to ${feat}`);
+  assert(freeCheck.requiresUpgrade === false, `Suite 29: ${feat} does not require upgrade`);
+}
+
+// 8. Strict Quota Matrix Enforcement
+assert(FREE_LIMITS.transactions === 50, 'Suite 29: Free transaction quota is exactly 50');
+assert(FREE_LIMITS.clients === 3, 'Suite 29: Free client quota is exactly 3');
+assert(FREE_LIMITS.invoices === 3, 'Suite 29: Free invoice quota is exactly 3');
+assert(FREE_LIMITS.recurringBills === 1, 'Suite 29: Free recurring bill quota is exactly 1');
 
 // SUMMARY
 console.log('\n========================================');

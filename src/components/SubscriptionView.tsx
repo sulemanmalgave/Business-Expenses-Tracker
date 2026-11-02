@@ -24,13 +24,18 @@ import {
   detectLikelyBillingCountry, 
   cancelSubscriptionOnServer,
   recoverSubscriptionOnServer,
-  checkSubscriptionStatusOnServer
+  checkSubscriptionStatusOnServer,
+  FREE_LIMITS,
+  setDevTestPlan
 } from '../utils/subscriptionService';
 import { CheckoutModal } from './CheckoutModal';
 
 interface SubscriptionViewProps {
   profile: UserProfile;
   transactionsCount: number;
+  clientsCount?: number;
+  invoicesCount?: number;
+  recurringBillsCount?: number;
   onUpdateProfile: (updated: UserProfile) => void;
   onNavigateTab?: (tab: string) => void;
 }
@@ -38,6 +43,9 @@ interface SubscriptionViewProps {
 export const SubscriptionView: React.FC<SubscriptionViewProps> = ({ 
   profile, 
   transactionsCount,
+  clientsCount = 0,
+  invoicesCount = 0,
+  recurringBillsCount = 0,
   onUpdateProfile,
   onNavigateTab,
 }) => {
@@ -172,7 +180,10 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
     }
   };
 
-  const usagePercent = Math.min(100, Math.round((transactionsCount / 500) * 100));
+  const txUsagePercent = Math.min(100, Math.round((transactionsCount / FREE_LIMITS.transactions) * 100));
+  const clientUsagePercent = Math.min(100, Math.round((clientsCount / FREE_LIMITS.clients) * 100));
+  const invoiceUsagePercent = Math.min(100, Math.round((invoicesCount / FREE_LIMITS.invoices) * 100));
+  const billUsagePercent = Math.min(100, Math.round((recurringBillsCount / FREE_LIMITS.recurringBills) * 100));
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 py-4 px-2 sm:px-4">
@@ -328,55 +339,159 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
         </div>
 
         {/* Quota / Expiry Meters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Transaction Ledger Usage */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* 1. Transaction Ledger Usage */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
             <div className="flex justify-between text-xs">
-              <span className="font-bold text-slate-600 dark:text-slate-300">Transaction Ledger Usage</span>
-              <span className="font-mono text-slate-500">
-                {isPro ? `${transactionsCount} (Unlimited Pro)` : `${transactionsCount} / 500 records`}
+              <span className="font-bold text-slate-600 dark:text-slate-300">Transactions</span>
+              <span className="font-mono text-slate-500 font-semibold">
+                {isPro ? `${transactionsCount} (Unlimited)` : `${transactionsCount} / ${FREE_LIMITS.transactions}`}
               </span>
             </div>
             {!isPro && (
               <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full transition-all duration-300 ${
-                    usagePercent >= 90 ? 'bg-rose-500' : usagePercent >= 70 ? 'bg-amber-500' : 'bg-blue-600'
+                    txUsagePercent >= 90 ? 'bg-rose-500' : txUsagePercent >= 70 ? 'bg-amber-500' : 'bg-blue-600'
                   }`}
-                  style={{ width: `${usagePercent}%` }}
+                  style={{ width: `${txUsagePercent}%` }}
                 />
               </div>
             )}
             <p className="text-[11px] text-slate-400">
-              {isPro
-                ? 'Your Pro account includes unlimited transactions across all financial periods.'
-                : 'Free tier permits up to 500 records. Upgrading to Pro unlocks unlimited records.'}
+              {isPro ? 'Unlimited entries with Pro.' : `Free limit: ${FREE_LIMITS.transactions} records.`}
             </p>
           </div>
 
-          {/* Period Expiry / Next Renewal */}
+          {/* 2. Client Profiles Usage */}
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="font-bold text-slate-600 dark:text-slate-300">Client Directory</span>
+              <span className="font-mono text-slate-500 font-semibold">
+                {isPro ? `${clientsCount} (Unlimited)` : `${clientsCount} / ${FREE_LIMITS.clients}`}
+              </span>
+            </div>
+            {!isPro && (
+              <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    clientUsagePercent >= 100 ? 'bg-rose-500' : clientUsagePercent >= 66 ? 'bg-amber-500' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${clientUsagePercent}%` }}
+                />
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400">
+              {isPro ? 'Unlimited clients + profitability.' : `Free limit: ${FREE_LIMITS.clients} clients.`}
+            </p>
+          </div>
+
+          {/* 3. Invoices Usage */}
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="font-bold text-slate-600 dark:text-slate-300">Invoices</span>
+              <span className="font-mono text-slate-500 font-semibold">
+                {isPro ? `${invoicesCount} (Unlimited)` : `${invoicesCount} / ${FREE_LIMITS.invoices}`}
+              </span>
+            </div>
+            {!isPro && (
+              <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    invoiceUsagePercent >= 100 ? 'bg-rose-500' : invoiceUsagePercent >= 66 ? 'bg-amber-500' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${invoiceUsagePercent}%` }}
+                />
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400">
+              {isPro ? 'Unlimited customized invoices.' : `Free limit: ${FREE_LIMITS.invoices} invoices.`}
+            </p>
+          </div>
+
+          {/* 4. Renewal / Expiry Status */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
             <div className="flex justify-between text-xs">
               <span className="font-bold text-slate-600 dark:text-slate-300">
-                {isPro ? (profile.cancelAtPeriodEnd ? 'Access Valid Until' : 'Next Billing Date') : 'Renewal Status'}
+                {isPro ? (profile.cancelAtPeriodEnd ? 'Access Valid Until' : 'Next Billing Date') : 'License Status'}
               </span>
               <span className="font-mono text-slate-500 font-semibold">
-                {isPro && profile.subscriptionExpiry ? profile.subscriptionExpiry : 'No Renewal Required'}
+                {isPro && profile.subscriptionExpiry ? profile.subscriptionExpiry : 'Lifetime Free'}
               </span>
             </div>
-            {isPro && daysUntilExpiry !== null && (
+            {isPro && daysUntilExpiry !== null ? (
               <p className="text-[11px] text-slate-500">
                 {daysUntilExpiry > 0
-                  ? `${daysUntilExpiry} day(s) remaining in the current billing period.`
-                  : 'Subscription cycle expired. Renew to re-activate Pro tools.'}
+                  ? `${daysUntilExpiry} day(s) left in period.`
+                  : 'Cycle expired. Renew to access Pro.'}
               </p>
-            )}
-            {!isPro && (
+            ) : (
               <p className="text-[11px] text-slate-400">
-                Free plan does not expire. Your recorded data is permanently stored offline.
+                {isPro ? 'Active Pro subscription.' : 'Data stored offline safely.'}
               </p>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* DEVELOPER ENTITLEMENT TEST SUITE CONTROLLER */}
+      <div className="p-4 bg-slate-900/60 dark:bg-slate-900/80 border border-slate-700/60 rounded-3xl text-xs space-y-3 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            <span className="font-bold text-slate-200">Developer Entitlement Testing Suite</span>
+          </div>
+          <span className="text-[10.5px] text-slate-400 font-mono">Verified Free vs Pro Access Simulator</span>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Simulate how the entire application behaves as a Free user vs an active Pro subscriber across Analytics, Statements, Quota limiters, and the Header Badge.
+        </p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await setDevTestPlan('FREE', selectedCountry);
+              onUpdateProfile({ ...profile, ...res.profileUpdates });
+              setBannerMessage({ type: 'info', text: 'Switched to Free Plan (Test Mode). Pro analytics and advanced statements are locked.' });
+            }}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all pointer-events-auto ${
+              !isPro
+                ? 'bg-slate-700 text-white border border-slate-600 shadow-xs'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700/60'
+            }`}
+          >
+            Switch to Free Account (Test)
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await setDevTestPlan('PRO_MONTHLY', selectedCountry);
+              onUpdateProfile({ ...profile, ...res.profileUpdates });
+              setBannerMessage({ type: 'success', text: 'Switched to Verified Pro Monthly (Test Mode). All Pro features unlocked.' });
+            }}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all pointer-events-auto ${
+              isPro && profile.subscriptionPlan === 'pro_monthly'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-slate-800 text-blue-400 hover:bg-slate-700 border border-slate-700/60'
+            }`}
+          >
+            Switch to Pro Monthly (Test)
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await setDevTestPlan('PRO_YEARLY', selectedCountry);
+              onUpdateProfile({ ...profile, ...res.profileUpdates });
+              setBannerMessage({ type: 'success', text: 'Switched to Verified Pro Yearly (Test Mode). All Pro features unlocked.' });
+            }}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all pointer-events-auto ${
+              isPro && profile.subscriptionPlan === 'pro_yearly'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-slate-800 text-blue-400 hover:bg-slate-700 border border-slate-700/60'
+            }`}
+          >
+            Switch to Pro Yearly (Test)
+          </button>
         </div>
       </div>
 
@@ -434,11 +549,15 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Centralized client management</span>
+                  <span>Client directory (up to 3 clients)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Basic transaction history (up to 500)</span>
+                  <span>Standard invoices (up to 3 invoices)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>Transaction history (up to 50 entries)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />

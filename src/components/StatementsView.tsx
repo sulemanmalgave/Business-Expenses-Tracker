@@ -107,6 +107,13 @@ export const StatementsView: React.FC<StatementsViewProps> = ({
 
   // Synchronize Preset Range for Account Statement
   const handleAccountPeriodChange = (preset: typeof accountPeriodPreset) => {
+    if (preset === 'custom' && !isPremium) {
+      onUpgradeTrigger?.(
+        'Custom date range statements are a Pro feature. Upgrade to Pro for custom date intervals and bank-grade PDF exports.'
+      );
+      return;
+    }
+
     setAccountPeriodPreset(preset);
     setAccountValidationError(null);
 
@@ -123,6 +130,12 @@ export const StatementsView: React.FC<StatementsViewProps> = ({
 
   // Synchronize Preset Range for Income & Expense Statement
   const handleIePresetChange = (preset: 'this_month' | 'last_month' | 'financial_year' | 'last_financial_year') => {
+    if (!isPremium) {
+      onUpgradeTrigger?.(
+        'Custom date range statements are a Pro feature. Upgrade to Pro for custom intervals and bank-grade PDF exports.'
+      );
+      return;
+    }
     setIeMode('custom');
     setIeValidationError(null);
     const bounds = getDateRangeForPeriod(preset as any, new Date(), profile.financialYearStart || 'April');
@@ -751,6 +764,12 @@ export const StatementsView: React.FC<StatementsViewProps> = ({
                   </button>
                   <button
                     onClick={() => {
+                      if (!isPremium) {
+                        onUpgradeTrigger?.(
+                          'Custom period and custom date range statements are a Pro feature.'
+                        );
+                        return;
+                      }
                       setIeMode('custom');
                       setIeValidationError(null);
                     }}

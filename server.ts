@@ -949,7 +949,70 @@ app.post('/api/billing/check-subscription-status', async (req: Request, res: Res
     return;
   }
 
-  res.status(404).json({ error: 'Subscription not found in active records' });
+  res.status(404).json({ error: 'Subscription not found in active records', status: 'expired' });
+});
+
+/**
+ * POST /api/billing/dev-set-plan
+ * Development-only test mechanism allowing verification of both Free and Pro states.
+ * Generates verified test signatures or clears entitlement cleanly.
+ */
+app.post('/api/billing/dev-set-plan', (req: Request, res: Response) => {
+  const { plan, country } = req.body;
+  const isIndia = country === 'IN' || country === 'India';
+  const targetPlan = String(plan || 'FREE').toUpperCase();
+
+  if (targetPlan === 'FREE') {
+    res.json({
+      success: true,
+      plan: 'free',
+      status: 'expired',
+      subscriptionId: null,
+      expiryDate: null,
+      message: 'Switched to Free Plan (Development Test Mode)',
+    });
+    return;
+  }
+
+  const isYearly = targetPlan === 'PRO_YEARLY';
+  const planCode: 'pro_monthly' | 'pro_yearly' = isYearly ? 'pro_yearly' : 'pro_monthly';
+  const subId = `sub_test_${planCode}_${Date.now()}`;
+  const amount = isIndia ? (isYearly ? 1999 : 199) : (isYearly ? 29.99 : 2.99);
+  const currency: 'INR' | 'USD' = isIndia ? 'INR' : 'USD';
+  const interval: 'month' | 'year' = isYearly ? 'year' : 'month';
+
+  const startDate = new Date();
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + (isYearly ? 365 : 30));
+
+  const signature = crypto
+    .createHmac('sha256', SERVER_INTEGRITY_SECRET)
+    .update(`${subId}|${planCode}|${expiryDate.toISOString()}|active`)
+    .digest('hex');
+
+  const subscription = {
+    subscriptionId: subId,
+    planCode,
+    billingCountry: isIndia ? 'IN' : 'INTL',
+    currency,
+    amount,
+    interval,
+    status: 'active' as const,
+    startDate: startDate.toISOString().split('T')[0],
+    expiryDate: expiryDate.toISOString().split('T')[0],
+    provider: 'sandbox' as const,
+    signature,
+  };
+
+  activeSubscriptionsStore.set(subId, subscription);
+
+  res.json({
+    success: true,
+    plan: planCode,
+    status: 'active',
+    subscription,
+    message: `Activated ${isYearly ? 'Pro Yearly' : 'Pro Monthly'} (Development Test Mode)`,
+  });
 });
 
 /**

@@ -31,14 +31,16 @@ export const PLAN_METADATA: Record<SubscriptionPlanCode, PlanMetadata> = {
     name: 'Free Plan',
     tagline: 'Essential day-to-day income and expense ledger for small businesses',
     features: [
-      'Income and expense tracking',
-      'Basic dashboard',
-      'Basic financial summaries',
-      'Basic categories',
-      'Client management',
-      'Basic transaction history',
-      'CSV export (always free)',
+      'Income & expense tracking (up to 50 transactions)',
+      'Basic dashboard & financial summaries',
+      'Client management (up to 3 clients)',
+      'Standard invoices (up to 3 invoices)',
+      '1 recurring obligation to test',
+      'Standard transaction categories',
+      'Basic reports & P&L summaries',
+      'Full CSV export (always free)',
       'Manual backup and restore (always free)',
+      '100% private offline storage',
     ],
   },
   pro_monthly: {
@@ -174,23 +176,161 @@ export function getPlanPricing(
   return REGIONAL_PRICING[regionKey][plan];
 }
 
+export type CanonicalPlanCode = 'FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY';
+
+/**
+ * Exact, enforceable Free plan usage quotas:
+ * - 50 Active Transactions (Pro: Unlimited)
+ * - 3 Client Profiles (Pro: Unlimited)
+ * - 3 Invoices (Pro: Unlimited)
+ * - 1 Recurring Bill (Pro: Unlimited)
+ * - 1 Workspace / Entity (Pro: Multiple)
+ */
+export const FREE_LIMITS = {
+  transactions: 50,
+  clients: 3,
+  invoices: 3,
+  recurringBills: 1,
+  businesses: 1,
+} as const;
+
+/**
+ * Returns canonical plan code ('FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY')
+ * evaluated strictly from verified subscription status.
+ */
+export function getEntitlementPlan(profile?: UserProfile | null): CanonicalPlanCode {
+  if (!profile) return 'FREE';
+  if (!isSubscriptionActive(profile)) return 'FREE';
+
+  const plan = (profile.subscriptionPlan || '').toUpperCase();
+  if (plan.includes('YEARLY')) {
+    return 'PRO_YEARLY';
+  }
+  return 'PRO_MONTHLY';
+}
+
 /**
  * Checks if user's subscription is actively entitled to Pro capabilities.
+ * Strictly verifies status against server/provider states:
+ * - Active: Valid Pro (must have non-expired date)
+ * - Cancelled with future expiry date: Valid Pro until expiry date (grace period)
+ * - Free, Expired, suspended, pending, failed, or unverified: Returns false (reverts to Free)
  */
-export function isSubscriptionActive(profile: UserProfile): boolean {
-  const plan = profile.subscriptionPlan || 'free';
-  if (plan === 'free') return false;
+export function isSubscriptionActive(profile?: UserProfile | null): boolean {
+  if (!profile) return false;
 
-  const status = profile.subscriptionStatus || 'expired';
+  const rawPlan = (profile.subscriptionPlan || 'free').toLowerCase();
+  if (rawPlan === 'free' || !rawPlan) return false;
+
+  // Must be recognized Pro plan
+  if (rawPlan !== 'pro_monthly' && rawPlan !== 'pro_yearly') {
+    return false;
+  }
+
+  const status = (profile.subscriptionStatus || 'expired').toLowerCase();
+
+  // Expired, pending, failed, unverified statuses are NEVER active
+  if (!status || status === 'expired' || status === 'pending' || status === 'failed' || status === 'unverified') {
+    return false;
+  }
+
+  // If subscription was cancelled (or marked cancelAtPeriodEnd), remain Pro until expiry date
+  if (status === 'cancelled' || profile.cancelAtPeriodEnd) {
+    if (profile.subscriptionExpiry) {
+      const expiryTime = new Date(profile.subscriptionExpiry).getTime();
+      return !isNaN(expiryTime) && expiryTime > Date.now();
+    }
+    return false;
+  }
+
+  // Active status is required
   if (status !== 'active') return false;
 
+  // Verify expiry date if specified
   if (profile.subscriptionExpiry) {
-    const expiryDate = new Date(profile.subscriptionExpiry);
-    const currentDate = new Date();
-    return expiryDate.getTime() > currentDate.getTime();
+    const expiryTime = new Date(profile.subscriptionExpiry).getTime();
+    if (!isNaN(expiryTime) && expiryTime <= Date.now()) {
+      return false; // Expired
+    }
   }
 
   return true;
+}
+
+/**
+ * Development test mechanism to toggle between Free Plan and Verified Pro states
+ * for testing and QA verification without requiring live payment transactions.
+ */
+export async function setDevTestPlan(
+  plan: 'FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY',
+  country: 'IN' | 'INTL' = 'INTL'
+): Promise<{ success: boolean; profileUpdates: Partial<UserProfile>; message: string }> {
+  try {
+    const res = await fetch('/api/billing/dev-set-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan, country }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to set test plan (${res.status})`);
+    }
+    const data = await res.json();
+    if (plan === 'FREE') {
+      return {
+        success: true,
+        profileUpdates: {
+          subscriptionPlan: 'free',
+          subscriptionStatus: 'expired',
+          subscriptionExpiry: undefined,
+          subscriptionId: undefined,
+          cancelAtPeriodEnd: false,
+        },
+        message: data.message || 'Switched to Free Plan (Test Mode)',
+      };
+    } else {
+      return {
+        success: true,
+        profileUpdates: {
+          subscriptionPlan: data.plan,
+          subscriptionStatus: 'active',
+          subscriptionExpiry: data.subscription.expiryDate,
+          subscriptionId: data.subscription.subscriptionId,
+          cancelAtPeriodEnd: false,
+        },
+        message: data.message || `Switched to ${data.plan} (Test Mode)`,
+      };
+    }
+  } catch (err: any) {
+    // Local offline test fallback
+    if (plan === 'FREE') {
+      return {
+        success: true,
+        profileUpdates: {
+          subscriptionPlan: 'free',
+          subscriptionStatus: 'expired',
+          subscriptionExpiry: undefined,
+          subscriptionId: undefined,
+          cancelAtPeriodEnd: false,
+        },
+        message: 'Switched to Free Plan (Offline Test Mode)',
+      };
+    } else {
+      const isYearly = plan === 'PRO_YEARLY';
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + (isYearly ? 365 : 30));
+      return {
+        success: true,
+        profileUpdates: {
+          subscriptionPlan: isYearly ? 'pro_yearly' : 'pro_monthly',
+          subscriptionStatus: 'active',
+          subscriptionExpiry: expiryDate.toISOString().split('T')[0],
+          subscriptionId: `sub_offline_test_${Date.now()}`,
+          cancelAtPeriodEnd: false,
+        },
+        message: `Switched to ${plan} (Offline Test Mode)`,
+      };
+    }
+  }
 }
 
 /**
@@ -223,14 +363,39 @@ export type AppFeature =
   | 'advanced_analytics'
   | 'advanced_invoices'
   | 'receipt_attachments'
-  | 'multiple_businesses';
+  | 'multiple_businesses'
+  | 'unlimited_clients'
+  | 'unlimited_invoices';
 
-export function isFeatureAllowed(
-  profile: UserProfile,
-  feature: AppFeature,
-  currentTransactionsCount: number = 0
-): { allowed: boolean; message?: string } {
-  const hasPro = isSubscriptionActive(profile);
+export interface FeatureEntitlementResult {
+  allowed: boolean;
+  plan: CanonicalPlanCode;
+  requiresUpgrade: boolean;
+  message?: string;
+  limit?: number;
+  current?: number;
+}
+
+/**
+ * Reusable permission and quota check for every feature in the application.
+ */
+export function checkFeatureEntitlement(
+  profile?: UserProfile | null,
+  feature?: AppFeature,
+  usageCounts?: {
+    transactions?: number;
+    clients?: number;
+    invoices?: number;
+    recurringBills?: number;
+    businesses?: number;
+  }
+): FeatureEntitlementResult {
+  const plan = getEntitlementPlan(profile);
+  const isPro = plan !== 'FREE';
+
+  if (!feature) {
+    return { allowed: true, plan, requiresUpgrade: false };
+  }
 
   // 1. Core Free Features (Always 100% free and never blocked)
   const alwaysFreeFeatures: AppFeature[] = [
@@ -248,23 +413,96 @@ export function isFeatureAllowed(
   ];
 
   if (alwaysFreeFeatures.includes(feature)) {
-    return { allowed: true };
+    return { allowed: true, plan, requiresUpgrade: false };
   }
 
   // 2. Transaction Quota Check
   if (feature === 'unlimited_transactions') {
-    if (hasPro) return { allowed: true };
+    if (isPro) return { allowed: true, plan, requiresUpgrade: false };
+    const count = usageCounts?.transactions ?? 0;
+    const allowed = count < FREE_LIMITS.transactions;
     return {
-      allowed: currentTransactionsCount < 500,
-      message:
-        currentTransactionsCount >= 500
-          ? 'Free plan quota of 500 transactions reached. Upgrade to Pro for unlimited transactions.'
-          : undefined,
+      allowed,
+      plan,
+      limit: FREE_LIMITS.transactions,
+      current: count,
+      requiresUpgrade: !allowed,
+      message: !allowed
+        ? `Free plan quota of ${FREE_LIMITS.transactions} transactions reached. Upgrade to Pro for unlimited records.`
+        : undefined,
     };
   }
 
-  // 3. Pro Gated Features
-  if (!hasPro) {
+  // 3. Client Quota Check
+  if (feature === 'unlimited_clients') {
+    if (isPro) return { allowed: true, plan, requiresUpgrade: false };
+    const count = usageCounts?.clients ?? 0;
+    const allowed = count < FREE_LIMITS.clients;
+    return {
+      allowed,
+      plan,
+      limit: FREE_LIMITS.clients,
+      current: count,
+      requiresUpgrade: !allowed,
+      message: !allowed
+        ? `Free plan is limited to ${FREE_LIMITS.clients} clients. Upgrade to Pro for unlimited client directory and profitability analytics.`
+        : undefined,
+    };
+  }
+
+  // 4. Invoice Quota Check
+  if (feature === 'unlimited_invoices') {
+    if (isPro) return { allowed: true, plan, requiresUpgrade: false };
+    const count = usageCounts?.invoices ?? 0;
+    const allowed = count < FREE_LIMITS.invoices;
+    return {
+      allowed,
+      plan,
+      limit: FREE_LIMITS.invoices,
+      current: count,
+      requiresUpgrade: !allowed,
+      message: !allowed
+        ? `Free plan is limited to ${FREE_LIMITS.invoices} invoices. Upgrade to Pro for unlimited invoices and custom PDF formatting.`
+        : undefined,
+    };
+  }
+
+  // 5. Recurring Bills Quota Check
+  if (feature === 'recurring_bills') {
+    if (isPro) return { allowed: true, plan, requiresUpgrade: false };
+    const count = usageCounts?.recurringBills ?? 0;
+    const allowed = count < FREE_LIMITS.recurringBills;
+    return {
+      allowed,
+      plan,
+      limit: FREE_LIMITS.recurringBills,
+      current: count,
+      requiresUpgrade: !allowed,
+      message: !allowed
+        ? `Free plan allows up to ${FREE_LIMITS.recurringBills} recurring bill to test. Upgrade to Pro for unlimited recurring obligations and cash-flow forecasting.`
+        : undefined,
+    };
+  }
+
+  // 6. Multiple Businesses Quota Check
+  if (feature === 'multiple_businesses') {
+    if (isPro) return { allowed: true, plan, requiresUpgrade: false };
+    const count = usageCounts?.businesses ?? 1;
+    const allowed = count < FREE_LIMITS.businesses;
+    return {
+      allowed,
+      plan,
+      limit: FREE_LIMITS.businesses,
+      current: count,
+      requiresUpgrade: !allowed,
+      message: !allowed
+        ? 'Managing separate corporate entities is a Pro capability.'
+        : undefined,
+    };
+  }
+
+  // 7. Pro Gated Features
+  if (!isPro) {
     const featureLabels: Partial<Record<AppFeature, string>> = {
       advanced_reports: 'Advanced financial reports and comprehensive P&L analytics are a Pro feature.',
       pdf_account_statements: 'Generating bank-grade printable PDF account statements is a Pro feature.',
@@ -274,21 +512,38 @@ export function isFeatureAllowed(
       project_profitability: 'Deep project & client profitability breakdown is a Pro feature.',
       batch_receipt_ocr: 'Batch receipt OCR and automated expense extraction is a Pro feature.',
       receipt_attachments: 'Receipt attachment & batch image ingest is a Pro feature.',
-      recurring_bills: 'Recurring bills, scheduled obligations, and cash-flow forecasting are a Pro feature.',
       recurring_income: 'Automated recurring income scheduling is a Pro feature.',
       recurring_expenses: 'Automated recurring bill obligations are a Pro feature.',
       advanced_analytics: 'Advanced analytics, predictive trends, and report filters are a Pro feature.',
       advanced_invoices: 'Advanced invoice customization, payment tracking, and tax summaries are a Pro feature.',
-      multiple_businesses: 'Managing multiple corporate entities and workspaces is a Pro feature.',
     };
 
     return {
       allowed: false,
+      plan,
+      requiresUpgrade: true,
       message: featureLabels[feature] || 'This advanced feature requires an active Pro subscription.',
     };
   }
 
-  return { allowed: true };
+  return { allowed: true, plan, requiresUpgrade: false };
+}
+
+/**
+ * Backward-compatible helper for existing code and tests.
+ */
+export function isFeatureAllowed(
+  profile: UserProfile,
+  feature: AppFeature,
+  currentCount: number = 0
+): { allowed: boolean; message?: string } {
+  const result = checkFeatureEntitlement(profile, feature, {
+    transactions: currentCount,
+    clients: currentCount,
+    invoices: currentCount,
+    recurringBills: currentCount,
+  });
+  return { allowed: result.allowed, message: result.message };
 }
 
 // ==========================================

@@ -23,7 +23,7 @@ import {
 import { UserProfile, Transaction, Client } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
 import { roundMoney } from '../utils/financeCalculations';
-import { isSubscriptionActive } from '../utils/subscriptionService';
+import { isSubscriptionActive, FREE_LIMITS } from '../utils/subscriptionService';
 import { ClientSelector } from './ClientSelector';
 
 export interface InvoiceLineItem {
@@ -41,6 +41,9 @@ interface InvoiceModalProps {
   initialSelectedClient?: Client | null;
   onSaveClient?: (client: Client) => void;
   onRecordIncome?: (tx: Omit<Transaction, 'id'>) => void;
+  isPremium?: boolean;
+  invoiceCount?: number;
+  onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
@@ -50,7 +53,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   clients = [],
   initialSelectedClient = null,
   onSaveClient,
-  onRecordIncome
+  onRecordIncome,
+  isPremium,
+  invoiceCount = 0,
+  onUpgradeTrigger,
 }) => {
   const [docType, setDocType] = useState<'Invoice' | 'Estimate'>('Invoice');
   const [docNumber, setDocNumber] = useState(`INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900) + 100)}`);
@@ -177,6 +183,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const handleRecordToLedger = () => {
     if (!onRecordIncome || subtotal <= 0) return;
 
+    const effectiveIsPro = isPremium ?? isSubscriptionActive(profile);
+    if (!effectiveIsPro && invoiceCount >= FREE_LIMITS.invoices) {
+      if (onUpgradeTrigger) {
+        onUpgradeTrigger(
+          `Free plan is limited to ${FREE_LIMITS.invoices} invoices. Upgrade to Pro for unlimited invoices, PDF exports, and custom business branding.`
+        );
+      }
+      return;
+    }
+
     onRecordIncome({
       type: 'income',
       amount: totalAmount,
@@ -202,6 +218,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     }, 4000);
   };
 
+  const effectiveIsPro = isPremium ?? isSubscriptionActive(profile);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-slate-950/75 backdrop-blur-sm pointer-events-auto overflow-y-auto">
       <motion.div
@@ -221,10 +239,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
                   Document Generator
                 </span>
-                <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  PRO
-                </span>
+                {effectiveIsPro ? (
+                  <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
+                    <Sparkles className="w-2.5 h-2.5" />
+                    PRO UNLIMITED
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    Free ({invoiceCount}/{FREE_LIMITS.invoices})
+                  </span>
+                )}
                 <span className="text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full font-bold">
                   Print & PDF Ready
                 </span>

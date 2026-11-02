@@ -12,7 +12,9 @@ import {
   CreditCard,
   Target,
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  Lock,
+  ArrowRight
 } from 'lucide-react';
 import { Transaction, UserProfile } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
@@ -22,6 +24,7 @@ import { calculateFinancials } from '../utils/financeCalculations';
 interface AnalyticsViewProps {
   transactions: Transaction[];
   profile: UserProfile;
+  isPremium?: boolean;
   onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
 
@@ -64,8 +67,13 @@ const GrowthTooltip: React.FC<{
   );
 };
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ transactions, profile, onUpgradeTrigger }) => {
-  const isPremium = isSubscriptionActive(profile);
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ 
+  transactions, 
+  profile, 
+  isPremium: propIsPremium,
+  onUpgradeTrigger 
+}) => {
+  const isPremium = propIsPremium !== undefined ? propIsPremium : isSubscriptionActive(profile);
   const financials = calculateFinancials(transactions, profile.taxRate);
 
   // Filter core types
@@ -185,6 +193,96 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ transactions, prof
   };
 
   const advisorAlerts = generateAdvisories();
+
+  if (!isPremium) {
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto py-2">
+        {/* Header Area */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                Financial Intelligence
+              </span>
+              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <Sparkles className="w-2.5 h-2.5" />
+                PRO FEATURE
+              </span>
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+              Advanced Analytics & Financial Health
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Deep operational insights, burn rate forecasting, unit economics, and margin alerts.
+            </p>
+          </div>
+        </div>
+
+        {/* Pro Lock Screen Card */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 text-center">
+          <div className="w-16 h-16 mx-auto rounded-3xl bg-blue-600/10 dark:bg-blue-500/20 border border-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <BarChart3 className="w-8 h-8" />
+          </div>
+
+          <div className="max-w-md mx-auto space-y-2">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+              Unlock Pro Financial Intelligence
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Advanced analytics is a Pro feature designed for growing businesses. Upgrade to unlock automated cash runway forecasting, spending hotspot detection, margin alerts, and unit economics ratios.
+            </p>
+          </div>
+
+          {/* Feature List Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto text-left text-xs">
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2.5">
+              <Flame className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200 block">Cash Runway Forecasting</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Predict exact zero-cash dates from monthly burn rate.</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2.5">
+              <Target className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200 block">Unit Economics & Margins</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Average ticket sizes across income and expense outflows.</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200 block">Hotspot Anomaly Detection</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Pinpoint runaway expense categories before they impact cash.</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200 block">Health Advisory Alerts</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Rule-based recommendations based on genuine ledger data.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Call to action buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => onUpgradeTrigger?.('Unlock Advanced Financial Intelligence, Cash Runway Forecasting & Unit Economics with Pro.')}
+              className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-1.5 pointer-events-auto"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Upgrade to Pro (₹199/mo or $2.99/mo)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

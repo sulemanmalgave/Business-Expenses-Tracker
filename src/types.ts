@@ -114,8 +114,8 @@ export interface UserProfile {
   numberFormatPreference?: string;
   onboarded?: boolean;
   billingCountry?: string;
-  subscriptionPlan?: 'free' | 'pro_monthly' | 'pro_yearly';
-  subscriptionStatus?: 'active' | 'expired';
+  subscriptionPlan?: 'free' | 'pro_monthly' | 'pro_yearly' | 'FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY';
+  subscriptionStatus?: 'active' | 'expired' | 'cancelled' | 'pending' | 'suspended' | 'failed';
   subscriptionExpiry?: string | null;
   subscriptionId?: string;
   subscriptionProvider?: 'razorpay' | 'paypal' | 'sandbox';

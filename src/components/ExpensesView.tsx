@@ -22,6 +22,7 @@ import {
 import { Transaction, Category, UserProfile, RecurrencePeriod, Client } from '../types';
 import { DEFAULT_CURRENCIES, formatCurrency, compressImage } from '../utils/financeUtils';
 import { validateTransaction, roundMoney } from '../utils/financeCalculations';
+import { FREE_LIMITS } from '../utils/subscriptionService';
 import { ClientSelector } from './ClientSelector';
 
 interface ExpensesViewProps {
@@ -237,6 +238,18 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       return;
     }
 
+    if (!editingTx && !isPremium && transactions.length >= FREE_LIMITS.transactions) {
+      onUpgradeTrigger?.(
+        `Free plan quota of ${FREE_LIMITS.transactions} transactions reached. Upgrade to Pro for unlimited transactions.`
+      );
+      return;
+    }
+
+    if (isRecurring && !isPremium) {
+      onUpgradeTrigger?.('Automated recurring bills and obligations are a Pro feature.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const transactionPayload = {
@@ -299,6 +312,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
         <button
           onClick={() => {
+            if (!isPremium && transactions.length >= FREE_LIMITS.transactions) {
+              onUpgradeTrigger?.(
+                `Free plan quota of ${FREE_LIMITS.transactions} transactions reached. Upgrade to Pro for unlimited transactions.`
+              );
+              return;
+            }
             setSelectedCat(expenseCategories[0]?.name || '');
             setShowAddModal(true);
           }}

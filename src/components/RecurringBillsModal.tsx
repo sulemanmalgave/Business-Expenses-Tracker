@@ -16,6 +16,7 @@ import {
 import { RecurringBill, Category, UserProfile, Transaction } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
 import { advanceDueDate } from '../utils/recurringService';
+import { FREE_LIMITS } from '../utils/subscriptionService';
 
 interface RecurringBillsModalProps {
   isOpen: boolean;
@@ -26,6 +27,8 @@ interface RecurringBillsModalProps {
   onSaveBill: (bill: RecurringBill) => void;
   onDeleteBill: (id: string) => void;
   onMarkAsPaid: (bill: RecurringBill) => void;
+  isPremium?: boolean;
+  onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
 
 export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({
@@ -37,6 +40,8 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({
   onSaveBill,
   onDeleteBill,
   onMarkAsPaid,
+  isPremium = false,
+  onUpgradeTrigger,
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [description, setDescription] = useState('');
@@ -55,6 +60,12 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPremium && recurringBills.length >= FREE_LIMITS.recurringBills) {
+      onUpgradeTrigger?.(
+        `Free plan allows up to ${FREE_LIMITS.recurringBills} recurring bill to test. Upgrade to Pro for unlimited recurring obligations and cash-flow forecasting.`
+      );
+      return;
+    }
     const parsedAmount = parseFloat(amount);
     if (!description.trim() || isNaN(parsedAmount) || parsedAmount <= 0) return;
 
@@ -173,7 +184,15 @@ export const RecurringBillsModal: React.FC<RecurringBillsModalProps> = ({
                 Configured Schedules ({recurringBills.length})
               </span>
               <button
-                onClick={() => setShowAddForm(true)}
+                onClick={() => {
+                  if (!isPremium && recurringBills.length >= FREE_LIMITS.recurringBills) {
+                    onUpgradeTrigger?.(
+                      `Free plan allows up to ${FREE_LIMITS.recurringBills} recurring bill to test. Upgrade to Pro for unlimited recurring obligations and cash-flow forecasting.`
+                    );
+                    return;
+                  }
+                  setShowAddForm(true);
+                }}
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all pointer-events-auto"
               >
                 <Plus className="w-4 h-4" />

@@ -41,7 +41,7 @@ import {
   persistClients 
 } from './utils/indexedDbStorage';
 import { processBillPayment } from './utils/recurringService';
-import { isSubscriptionActive, verifyPaymentOnServer } from './utils/subscriptionService';
+import { isSubscriptionActive, verifyPaymentOnServer, checkSubscriptionStatusOnServer } from './utils/subscriptionService';
 import { isSessionUnlocked, lockSession, getAuthRecord } from './utils/authService';
 
 // Modular Views
@@ -201,9 +201,70 @@ export default function App() {
         const data = await loadDurableData();
         setTransactions(data.transactions);
         setCategories(data.categories);
-        setProfile(data.profile);
+        const loadedProf = data.profile;
+        setProfile(loadedProf);
         setRecurringBills(data.recurringBills || []);
         setClients(data.clients || []);
+
+        // Centralized Entitlement Integrity: Verify stored Pro subscription with server
+        const plan = (loadedProf.subscriptionPlan || 'free').toLowerCase();
+        if (plan !== 'free') {
+          if (loadedProf.subscriptionId) {
+            checkSubscriptionStatusOnServer(loadedProf.subscriptionId).then((res) => {
+              if (res.success && res.subscription) {
+                const isActive = res.subscription.status === 'active' || 
+                  (res.subscription.status === 'cancelled' && new Date(res.subscription.expiryDate).getTime() > Date.now());
+                if (isActive) {
+                  const updated: UserProfile = {
+                    ...loadedProf,
+                    subscriptionStatus: res.subscription.status,
+                    subscriptionExpiry: res.subscription.expiryDate,
+                    cancelAtPeriodEnd: res.subscription.cancelAtPeriodEnd || false,
+                  };
+                  setProfile(updated);
+                  persistProfile(updated);
+                } else {
+                  const updated: UserProfile = {
+                    ...loadedProf,
+                    subscriptionPlan: 'free',
+                    subscriptionStatus: 'expired',
+                  };
+                  setProfile(updated);
+                  persistProfile(updated);
+                }
+              } else {
+                // Subscription ID not found in verified server cache -> revert to Free
+                const updated: UserProfile = {
+                  ...loadedProf,
+                  subscriptionPlan: 'free',
+                  subscriptionStatus: 'expired',
+                };
+                setProfile(updated);
+                persistProfile(updated);
+              }
+            }).catch(() => {
+              // Network/offline error: check local expiry
+              if (loadedProf.subscriptionExpiry && new Date(loadedProf.subscriptionExpiry).getTime() <= Date.now()) {
+                const updated: UserProfile = {
+                  ...loadedProf,
+                  subscriptionPlan: 'free',
+                  subscriptionStatus: 'expired',
+                };
+                setProfile(updated);
+                persistProfile(updated);
+              }
+            });
+          } else {
+            // Local Pro flag without valid subscription ID -> revert to Free
+            const updated: UserProfile = {
+              ...loadedProf,
+              subscriptionPlan: 'free',
+              subscriptionStatus: 'expired',
+            };
+            setProfile(updated);
+            persistProfile(updated);
+          }
+        }
 
         // Multiple businesses list
         const storedBusinesses = localStorage.getItem('finance_app_businesses_list');
@@ -298,6 +359,12 @@ export default function App() {
   };
 
   const isPremium = isSubscriptionActive(profile);
+  const invoiceCount = transactions.filter(
+    (t) =>
+      (t.description || '').startsWith('Invoice #') ||
+      (t.description || '').startsWith('Estimate #') ||
+      (t.description || '').includes('INV-')
+  ).length;
 
   const daysUntilExpiry = profile.subscriptionExpiry 
     ? Math.ceil((new Date(profile.subscriptionExpiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
@@ -758,6 +825,29 @@ export default function App() {
                 {NAV_ITEMS.find((n) => n.id === activeTab)?.label || 'Overview'}
               </span>
             </div>
+
+            {/* Current Plan Identification Badge */}
+            {isPremium ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab('subscription')}
+                className="flex items-center space-x-1 px-2.5 py-0.5 rounded-lg text-[9.5px] font-black tracking-wider uppercase bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 cursor-pointer hover:bg-blue-500/25 transition-all shadow-xs pointer-events-auto"
+                title="Verified Pro Plan - Click to manage subscription"
+              >
+                <Sparkles className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                <span>PRO PLAN</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleUpgradeTrigger('Upgrade to Pro for unlimited records, account statement PDFs, and advanced analytics.')}
+                className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-lg text-[9.5px] font-bold tracking-wider uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-blue-400/50 hover:text-blue-500 transition-all shadow-xs pointer-events-auto"
+                title="Free Starter Plan - Click to view Pro plans"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                <span>FREE PLAN</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center space-x-4">
@@ -981,6 +1071,8 @@ export default function App() {
                   onSaveClient={handleSaveClient}
                   onArchiveClient={handleArchiveClient}
                   onUnarchiveClient={handleUnarchiveClient}
+                  isPremium={isPremium}
+                  onUpgradeTrigger={handleUpgradeTrigger}
                   onNavigateToIncomeWithClient={(_clientId, clientName) => {
                     setActiveTab('income');
                     setAutoOpenFormType('income');
@@ -1020,6 +1112,7 @@ export default function App() {
                 <AnalyticsView
                   transactions={transactions}
                   profile={profile}
+                  isPremium={isPremium}
                   onUpgradeTrigger={handleUpgradeTrigger}
                 />
               )}
@@ -1065,6 +1158,9 @@ export default function App() {
                 <SubscriptionView
                   profile={profile}
                   transactionsCount={transactions.length}
+                  clientsCount={clients.length}
+                  invoicesCount={invoiceCount}
+                  recurringBillsCount={recurringBills.length}
                   onUpdateProfile={handleUpdateProfile}
                   onNavigateTab={setActiveTab}
                 />
@@ -1145,6 +1241,8 @@ export default function App() {
         onSaveBill={handleSaveRecurringBill}
         onDeleteBill={handleDeleteRecurringBill}
         onMarkAsPaid={handleMarkBillPaid}
+        isPremium={isPremium}
+        onUpgradeTrigger={handleUpgradeTrigger}
       />
 
       {/* Client Invoice & Estimate Generator Modal */}
@@ -1159,6 +1257,9 @@ export default function App() {
         initialSelectedClient={invoiceInitialClient}
         onSaveClient={handleSaveClient}
         onRecordIncome={(tx) => handleAddTransaction(tx)}
+        isPremium={isPremium}
+        invoiceCount={invoiceCount}
+        onUpgradeTrigger={handleUpgradeTrigger}
       />
 
       {/* Upgrade Pro Modal */}

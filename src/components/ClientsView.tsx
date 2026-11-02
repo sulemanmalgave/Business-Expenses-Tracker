@@ -30,6 +30,7 @@ import {
 import { Client, Transaction, UserProfile } from '../types';
 import { formatCurrency } from '../utils/financeUtils';
 import { getClientFinancialSummary } from '../utils/clientUtils';
+import { FREE_LIMITS } from '../utils/subscriptionService';
 import { QuickClientModal } from './QuickClientModal';
 
 interface ClientsViewProps {
@@ -42,6 +43,8 @@ interface ClientsViewProps {
   onNavigateToIncomeWithClient?: (clientId: string, clientName: string) => void;
   onNavigateToExpenseWithClient?: (clientId: string, clientName: string) => void;
   onOpenInvoiceWithClient?: (client: Client) => void;
+  isPremium?: boolean;
+  onUpgradeTrigger?: (reasonMessage?: string) => void;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -54,6 +57,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   onNavigateToIncomeWithClient,
   onNavigateToExpenseWithClient,
   onOpenInvoiceWithClient,
+  isPremium = false,
+  onUpgradeTrigger,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active');
@@ -102,6 +107,12 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   // Handle open add modal
   const handleOpenAdd = () => {
+    if (!isPremium && clients.filter((c) => !c.isArchived).length >= FREE_LIMITS.clients) {
+      onUpgradeTrigger?.(
+        `Free plan is limited to ${FREE_LIMITS.clients} client profiles. Upgrade to Pro for unlimited clients and full profitability analytics.`
+      );
+      return;
+    }
     setClientToEdit(null);
     setModalOpen(true);
   };
@@ -614,6 +625,12 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaveClient={(client) => {
+          if (!clientToEdit && !isPremium && clients.filter((c) => !c.isArchived).length >= FREE_LIMITS.clients) {
+            onUpgradeTrigger?.(
+              `Free plan is limited to ${FREE_LIMITS.clients} client profiles. Upgrade to Pro for unlimited clients and full profitability analytics.`
+            );
+            return;
+          }
           onSaveClient(client);
           setModalOpen(false);
           // If we were viewing this client in drawer, update view
