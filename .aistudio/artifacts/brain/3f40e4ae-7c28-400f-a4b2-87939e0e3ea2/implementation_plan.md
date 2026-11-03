@@ -1,113 +1,84 @@
-# 6-Digit PIN Authentication & User Login System
+# Free Plan 5-Client Directory Expansion
 
-Deliver a secure, frictionless authentication experience that requires users to establish their identity and a 6-digit PIN before accessing financial records, while preserving all existing transaction history, client ledgers, and Pro subscription entitlements.
-
----
-
-### User Review & Critical Decisions
+Expand the Free tier client directory quota from 3 to 5 clients, populate the starter client directory with 5 complete business profiles, and align all subscription metadata, quota checks, and test suites.
 
 > [!IMPORTANT]
-> The clarifying questions were completed with recommended security and usability defaults:
-> - **Authentication Scope**: Workspace access on this device is protected via a salted SHA-256 hashed 6-digit PIN with session management.
-> - **Lock Trigger**: Authentication required on first app visit, tab launch/refresh, and via an instant one-click "Lock Workspace" header control.
-> - **Recovery Safety**: Setup includes an optional security recovery question to prevent accidental permanent lockouts while keeping financial data 100% offline-first.
+> - Free plan users will now be able to maintain up to 5 full client profiles in their directory before reaching the Pro upgrade boundary (adding a 6th client prompts the upgrade modal).
+> - All existing client data, custom notes, invoices, and transaction links remain 100% preserved.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. Overview & Core Concept
 
-- **What It Does**: Gates application access behind a dedicated login and registration gateway. New users create their username and establish a verified 6-digit PIN (with confirmation check). Returning users enter their 6-digit PIN using a responsive keyboard or on-screen numeric keypad.
-- **Target Audience**: Small business owners, freelancers, and finance managers who need quick daily access without complex passwords, but require privacy against unauthorized local device access.
-- **Key Value**: Protects sensitive financial income, expense, and tax records with zero cloud dependency or credential transmission to third parties.
+Small business owners and freelancers tracking their income and expenses often manage 4–5 core recurring clients before needing an unlimited enterprise client book. Expanding the Free plan's client directory allowance to **5 clients**:
+- Gives Free users sufficient headroom to organize and track their primary clients.
+- Pre-populates the default directory with 5 realistic client records for instant out-of-the-box exploration.
+- Maintains strict, verified Pro entitlement boundaries when a user attempts to add a 6th client.
 
 ---
 
-### 2. User Experience & Visual Design
+## 2. User Experience & Visual Design
 
-#### A. Key User Flows
+- **Client Directory Overview (`ClientsView.tsx`)**:
+  - Top usage indicator displays `X / 5 clients used` in the Free plan quota card.
+  - Adding a client when count is `< 5` opens the client creation dialog normally.
+  - Adding a client when count is `≥ 5` opens the professional upgrade modal explaining: *"Free plan is limited to 5 client profiles. Upgrade to Pro for unlimited clients and full profitability analytics."*
+- **Subscription Management View (`SubscriptionView.tsx`)**:
+  - Plan card lists *"Client directory management (up to 5 clients)"*.
+  - Usage progress bar shows active clients out of 5 with an accurate percentage bar.
+- **Starter Client Dataset (`clientUtils.ts`)**:
+  - Fresh workspaces and demo resets populate with 5 diverse, professional client profiles:
+    1. **Zenith Digital Corp** (Digital Media / Retainer)
+    2. **Starlight Media & Design** (Creative Agency / Milestone)
+    3. **Nexus Global Solutions** (Enterprise Cloud / Advisory)
+    4. **Stellar Labs** (BioTech & AI / Consulting)
+    5. **Helios FinTech Systems** (FinTech Systems / Development)
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Limit Setting (`FREE_LIMITS.clients = 5`)**:
+  - *Decision*: Centralize the client limit constant in `src/utils/subscriptionService.ts` so all views, quota warnings, server verifications, and modals automatically reflect the exact same value.
+  - *Why*: Eliminates hardcoded magic numbers across components.
+- **Backwards Compatibility**:
+  - Existing users with 0–3 clients immediately gain the ability to add up to 5 without interruption.
+  - Existing users with 4+ clients (e.g. from prior Pro periods or custom imports) retain read-only and editing access to all their records without data truncation.
+
+---
+
+## 4. Technical Architecture & Component Mapping
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   App Launch Check                     │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-             Is PIN Registered & Configured?
-             ┌─────────────┴─────────────┐
-             ▼ NO                        ▼ YES
-┌─────────────────────────┐   ┌──────────────────────────┐
-│  New User Setup Screen  │   │  Returning User Login    │
-│  - User / Owner Name    │   │  - Avatar & Welcome Back │
-│  - Create 6-Digit PIN   │   │  - 6-Dot PIN Display     │
-│  - Confirm 6-Digit PIN  │   │  - Numeric Keypad + HW   │
-│  - Recovery Question    │   │  - Forgot PIN / Reset    │
-└────────────┬────────────┘   └────────────┬─────────────┘
-             │ Verified                    │ Valid PIN
-             └─────────────┬───────────────┘
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│            Unlocked Workspace (Main App)               │
-│   - Header shows User Badge & "Lock App" button        │
-│   - Settings tab allows PIN change & security update   │
-└────────────────────────────────────────────────────────┘
+│                   App State Store                      │
+│        (clients: Client[], profile: UserProfile)        │
+└───────────────┬────────────────────────┬───────────────┘
+                │                        │
+                ▼                        ▼
+     ┌───────────────────────┐ ┌──────────────────────┐
+     │    ClientsView.tsx    │ │ SubscriptionView.tsx │
+     │  - Up to 5 allowed    │ │  - Quota: 5 clients  │
+     │  - Upgrade trigger    │ │  - Feature checklist│
+     │    on 6th client      │ └──────────────────────┘
+     └──────────┬────────────┘
+                │
+                ▼
+     ┌──────────────────────────────────────────────────┐
+     │    subscriptionService.ts: FREE_LIMITS.clients    │
+     │            (Single Source of Truth = 5)          │
+     └──────────────────────────────────────────────────┘
 ```
 
-#### B. Visual Identity & Theme
-- **Layout Presence**: Centered, distraction-free modal card on a dark slate canvas (`bg-slate-950/95` dark or `bg-slate-50` light) with subtle hairline border.
-- **6-Digit PIN Input**: Six distinct digit boxes with smooth focus highlights, subtle scale animations on digit entry, masked dot representation, and instant error shake feedback.
-- **Numeric Keypad**: Tactile 3x4 numeric keypad with clean numbers (1-9, 0, backspace, clear) alongside full physical keyboard / numpad support.
-- **Color Discipline**: 60% neutral backdrop, 30% structural card surfaces (`bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800`), 10% high-intent blue accent (`#2563eb`) for action triggers.
+### Files to Update Upon Approval:
+1. `src/utils/subscriptionService.ts`: Update `FREE_LIMITS.clients = 5` and `PLAN_METADATA.free.features`.
+2. `src/utils/clientUtils.ts`: Expand `getStarterClients()` to include 5 realistic starter client profiles.
+3. `src/components/SubscriptionView.tsx`: Ensure quota labels and feature list reflect 5 clients.
+4. `tests/runAllTests.ts`: Update entitlement test suites (Suite 28, Suite 29) to assert `FREE_LIMITS.clients === 5` and test limit transitions at 4 -> 5 -> 6.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
-
-- **Cryptographic Hashing vs Plaintext Storage**:
-  - *Chosen Approach*: Store PIN as a cryptographic SHA-256 hash with an app-specific salt in `localStorage`.
-  - *Why*: Ensures that even if someone inspects the browser's storage, the plaintext 6-digit PIN cannot be read.
-  - *Alternatives Considered*: Storing PIN in plaintext was rejected as unsafe for financial software.
-- **Session Lifespan & Seamless Recovery**:
-  - *Chosen Approach*: Active session token stored in `sessionStorage` so refreshing the active page does not badger the user unnecessarily, while closing the browser or clicking "Lock App" requires the PIN.
-  - *Why*: Balances security against user fatigue.
-- **Data Protection Guarantee**:
-  - *Chosen Approach*: Authentication acts as a protective gate in front of the existing application state without wiping any transactions, categories, invoices, or subscriptions.
-
----
-
-### 4. Technical Architecture & Data Strategy
-
-```
-┌────────────────────────────────────────────────────────┐
-│                    src/App.tsx                         │
-│  - authState: { isConfigured, isAuthenticated, user }  │
-│  - Gated view: LoginScreen vs Main Dashboard Layout    │
-└────────────┬─────────────────────────────┬─────────────┘
-             │                             │
-             ▼                             ▼
-┌──────────────────────────┐  ┌──────────────────────────┐
-│  src/components/         │  │  src/utils/              │
-│  AuthScreen.tsx          │  │  authService.ts          │
-│  - Register View         │  │  - hashPin(pin, salt)    │
-│  - Login View            │  │  - verifyPin(pin)        │
-│  - Numeric Keypad        │  │  - setupAuthCredentials  │
-│  - Recovery View         │  │  - changePin()           │
-└──────────────────────────┘  │  - lockSession()         │
-                              └──────────────────────────┘
-```
-
-#### Key Implementation Steps:
-1. **`src/utils/authService.ts`**:
-   - `getAuthRecord()`: Reads stored auth configuration (`userName`, `pinHash`, `salt`, `securityQuestion`, `securityAnswerHash`).
-   - `setupCredentials(userName, pin, question, answer)`: Salts and hashes the PIN using Web Crypto API (`crypto.subtle.digest('SHA-256', ...)`).
-   - `verifyPin(pin)`: Compares computed hash against stored hash.
-   - `recoverPinWithAnswer(answer, newPin)`: Allows reset if security question matches.
-   - `isSessionUnlocked()` / `setSessionUnlocked(boolean)`: Manages session lock state.
-2. **`src/components/AuthScreen.tsx`**:
-   - Clean, accessible dual-mode interface: Registration (New User) and Unlock (Returning User).
-   - Auto-focusing 6-digit PIN inputs with keyboard & touch keypad support.
-   - Validation for matching PIN and confirmation PIN.
-3. **`src/App.tsx` Integration**:
-   - Gates app render: if not authenticated, renders `<AuthScreen>` full-screen.
-   - Header Lock Action: Adds a quick "Lock" button in the top navigation bar.
-   - Profile sync: Synchronizes username with `profile.ownerName` and `profile.businessName`.
-4. **Settings / Security Tab in `ProfileModal.tsx`**:
-   - Allows users to change their 6-digit PIN by entering their current PIN followed by a new confirmed PIN.
+## 5. Verification Plan
+- Run `npm run lint` (`tsc --noEmit`) to verify strict TypeScript adherence.
+- Run `npx tsx tests/runAllTests.ts` to verify all test suites pass with the 5-client limit.
+- Run `compile_applet` (`npm run build`) to ensure production build succeeds.

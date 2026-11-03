@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -32,6 +32,9 @@ import { formatCurrency } from '../utils/financeUtils';
 import { getClientFinancialSummary } from '../utils/clientUtils';
 import { FREE_LIMITS } from '../utils/subscriptionService';
 import { QuickClientModal } from './QuickClientModal';
+import { ClientActivitySummary } from './ClientActivitySummary';
+
+export { ClientActivitySummary };
 
 interface ClientsViewProps {
   clients: Client[];
@@ -45,6 +48,7 @@ interface ClientsViewProps {
   onOpenInvoiceWithClient?: (client: Client) => void;
   isPremium?: boolean;
   onUpgradeTrigger?: (reasonMessage?: string) => void;
+  globalSearchQuery?: string;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -59,21 +63,29 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   onOpenInvoiceWithClient,
   isPremium = false,
   onUpgradeTrigger,
+  globalSearchQuery,
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(globalSearchQuery || '');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [modalOpen, setModalOpen] = useState(false);
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null);
   const [selectedClientForProfile, setSelectedClientForProfile] = useState<Client | null>(null);
 
-  // Filter clients
+  // Synchronize with external or global search query if provided
+  useEffect(() => {
+    if (typeof globalSearchQuery === 'string') {
+      setSearchTerm(globalSearchQuery);
+    }
+  }, [globalSearchQuery]);
+
+  // Filter clients in real-time as user types
   const filteredClients = useMemo(() => {
     return clients.filter((client) => {
       // Status filter
       if (statusFilter === 'active' && client.isArchived) return false;
       if (statusFilter === 'archived' && !client.isArchived) return false;
 
-      // Search filter
+      // Real-time search filter
       if (!searchTerm.trim()) return true;
       const q = searchTerm.toLowerCase().trim();
       return (
@@ -81,7 +93,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         (client.companyName && client.companyName.toLowerCase().includes(q)) ||
         (client.email && client.email.toLowerCase().includes(q)) ||
         (client.phone && client.phone.toLowerCase().includes(q)) ||
-        (client.gstin && client.gstin.toLowerCase().includes(q))
+        (client.gstin && client.gstin.toLowerCase().includes(q)) ||
+        (client.notes && client.notes.toLowerCase().includes(q)) ||
+        (client.billingAddress && client.billingAddress.toLowerCase().includes(q))
       );
     });
   }, [clients, statusFilter, searchTerm]);
@@ -210,16 +224,36 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
       {/* Filter and Search Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Search */}
+        {/* Real-Time Search Input */}
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             placeholder="Search by client name, company, email, phone, or GSTIN..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:border-blue-500"
+            className="w-full pl-9 pr-20 py-2 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:border-blue-500 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+            data-testid="client-realtime-search-input"
+            aria-label="Filter clients in real-time"
           />
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            {searchTerm && (
+              <>
+                <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                  {filteredClients.length} match{filteredClients.length === 1 ? '' : 'es'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md transition-colors pointer-events-auto"
+                  title="Clear filter"
+                  aria-label="Clear client search filter"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Status Tabs */}
@@ -268,16 +302,29 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           </h3>
           <p className="text-xs text-slate-500 max-w-md mx-auto">
             {searchTerm
-              ? 'Try searching with a different keyword or create a new client record.'
+              ? 'Try searching with a different keyword or clear your search filter.'
               : 'Save client information once to auto-fill invoices and attach to income and expense transactions.'}
           </p>
-          <button
-            onClick={handleOpenAdd}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Your First Client</span>
-          </button>
+          <div className="flex items-center justify-center gap-2">
+            {searchTerm ? (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Clear Search Filter</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleOpenAdd}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Your First Client</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -375,21 +422,13 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Financial Summary Pill */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Revenue</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
-                      {formatCurrency(summary.totalIncome, profile.currency, profile.numberFormatPreference)}
-                    </span>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 block font-semibold uppercase">Activity</span>
-                    <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">
-                      {summary.transactionCount} transaction{summary.transactionCount !== 1 ? 's' : ''}
-                    </span>
-                  </div>
+                {/* Client Activity Summary */}
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <ClientActivitySummary
+                    client={client}
+                    transactions={transactions}
+                    profile={profile}
+                  />
                 </div>
               </div>
             );

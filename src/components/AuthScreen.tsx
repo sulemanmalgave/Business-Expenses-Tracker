@@ -244,8 +244,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       >
         {/* Brand identity header */}
         <div className="text-center space-y-2 mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/10 border border-blue-500/20 text-blue-400 mb-1">
-            <Lock className="w-7 h-7" />
+          <div className="flex justify-center mb-1">
+            <div className="relative">
+              <img 
+                src="/app-icon.png" 
+                alt="Business Expense Tracker" 
+                className="w-16 h-16 rounded-2xl shadow-xl object-contain border border-slate-700/60 bg-blue-600/10" 
+              />
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center border-2 border-slate-900 shadow-sm">
+                <Lock className="w-3.5 h-3.5" />
+              </div>
+            </div>
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">
             Business Expense Tracker

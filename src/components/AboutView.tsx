@@ -22,9 +22,11 @@ export const AboutView: React.FC<AboutViewProps> = ({ onBack, onNavigate }) => {
 
       <header className="space-y-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-500 rounded-xl flex items-center justify-center">
-            <Info className="w-5 h-5" />
-          </div>
+          <img
+            src="/app-icon.png"
+            alt="Business Expense Tracker"
+            className="w-12 h-12 rounded-2xl shadow-md object-contain border border-slate-700/60 bg-blue-600/10 shrink-0"
+          />
           <div>
             <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">Suite Information</span>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">About Business Expense Tracker</h1>

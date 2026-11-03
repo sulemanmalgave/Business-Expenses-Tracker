@@ -135,6 +135,7 @@ export const getClientFinancialSummary = (
 
 /**
  * Starter sample clients matching the initial business workspace transactions.
+ * Provides a 5-client starter directory for Free plan exploration.
  */
 export const getStarterClients = (): Client[] => {
   const now = new Date().toISOString();
@@ -148,6 +149,34 @@ export const getStarterClients = (): Client[] => {
       billingAddress: '452 Innovation Blvd, Suite 800, New York, NY 10001, USA',
       gstin: 'GSTIN27AABCT3518Q1Z4',
       notes: 'Key retainer client for monthly digital design and strategic branding.',
+      defaultCurrency: 'USD',
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'cli_starlight_media',
+      name: 'Starlight Media & Design',
+      companyName: 'Starlight Creative Group LLC',
+      email: 'finance@starlightmedia.com',
+      phone: '+1 (555) 345-6789',
+      billingAddress: '780 Sunset Blvd, Suite 400, Los Angeles, CA 90028, USA',
+      gstin: 'US-EIN-95-8123456',
+      notes: 'Quarterly web identity and product launch campaigns.',
+      defaultCurrency: 'USD',
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'cli_nexus_global',
+      name: 'Nexus Global Solutions',
+      companyName: 'Nexus Enterprise Consulting Ltd',
+      email: 'accounts@nexusglobalsolutions.com',
+      phone: '+1 (555) 456-7890',
+      billingAddress: '200 W Madison St, 19th Floor, Chicago, IL 60606, USA',
+      gstin: 'US-EIN-36-7459123',
+      notes: 'Strategic architecture and cloud modernization advisory SLA.',
       defaultCurrency: 'USD',
       isArchived: false,
       createdAt: now,

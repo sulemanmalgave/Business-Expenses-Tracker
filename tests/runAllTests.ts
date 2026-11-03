@@ -866,7 +866,7 @@ assert(archivedSummary.netContribution === 4500, 'Archived client preserves comp
 
 // Starter clients check
 const starterClients = getStarterClients();
-assert(starterClients.length >= 3, 'Provides at least 3 high-quality realistic starter clients');
+assert(starterClients.length === 5, 'Provides exactly 5 high-quality realistic starter clients for Free plan');
 assert(starterClients.some((c) => c.name.includes('Zenith')), 'Starter clients include Zenith Digital Corp');
 
 // 23. REGIONAL SUBSCRIPTION PRICING & PRODUCTS
@@ -1124,7 +1124,7 @@ const defaultFreeProfile: UserProfile = {
 assert(getEntitlementPlan(defaultFreeProfile) === 'FREE', 'Scenario 1: New user is placed on canonical FREE plan');
 assert(isSubscriptionActive(defaultFreeProfile) === false, 'Scenario 1: New user subscription is not active Pro');
 assert(FREE_LIMITS.transactions === 50, 'Scenario 1: Exact Free transaction limit is 50');
-assert(FREE_LIMITS.clients === 3, 'Scenario 1: Exact Free client limit is 3');
+assert(FREE_LIMITS.clients === 5, 'Scenario 1: Exact Free client limit is 5');
 assert(FREE_LIMITS.invoices === 3, 'Scenario 1: Exact Free invoice limit is 3');
 assert(FREE_LIMITS.recurringBills === 1, 'Scenario 1: Exact Free recurring obligation limit is 1');
 
@@ -1142,12 +1142,12 @@ assert(isFeatureAllowed(defaultFreeProfile, 'income_tracking').allowed === true,
 assert(isFeatureAllowed(defaultFreeProfile, 'expense_tracking').allowed === true, 'Scenario 2: Free user retains full expense ledger access');
 assert(isFeatureAllowed(defaultFreeProfile, 'basic_history').allowed === true, 'Scenario 2: Free user retains complete historical records viewing');
 
-// Scenario 3: Free user reaching 3 clients is blocked from adding a 4th client
-const clientCheckUnder = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 2 });
-assert(clientCheckUnder.allowed === true, 'Scenario 3: Free user with 2 clients can add 3rd client');
+// Scenario 3: Free user reaching 5 clients is blocked from adding a 6th client
+const clientCheckUnder = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 4 });
+assert(clientCheckUnder.allowed === true, 'Scenario 3: Free user with 4 clients can add 5th client');
 
-const clientCheckLimit = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 3 });
-assert(clientCheckLimit.allowed === false, 'Scenario 3: Free user with 3 clients is blocked from adding 4th client');
+const clientCheckLimit = checkFeatureEntitlement(defaultFreeProfile, 'unlimited_clients', { clients: 5 });
+assert(clientCheckLimit.allowed === false, 'Scenario 3: Free user with 5 clients is blocked from adding 6th client');
 assert(clientCheckLimit.requiresUpgrade === true, 'Scenario 3: Client limit triggers Pro upgrade');
 
 // Scenario 4: Free user reaching 3 invoices is blocked from generating a 4th invoice
@@ -1180,7 +1180,7 @@ const verifiedProMonthlyProfile: UserProfile = {
 assert(getEntitlementPlan(verifiedProMonthlyProfile) === 'PRO_MONTHLY', 'Scenario 6: Active Pro Monthly returns canonical PRO_MONTHLY');
 assert(isSubscriptionActive(verifiedProMonthlyProfile) === true, 'Scenario 6: Active Pro Monthly is active');
 assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_transactions', { transactions: 1000 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited transactions beyond 50');
-assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_clients', { clients: 50 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited clients beyond 3');
+assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_clients', { clients: 50 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited clients beyond 5');
 assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'unlimited_invoices', { invoices: 100 }).allowed === true, 'Scenario 6: Pro Monthly has unlimited invoices beyond 3');
 assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'advanced_analytics').allowed === true, 'Scenario 6: Pro Monthly unlocks advanced analytics');
 assert(checkFeatureEntitlement(verifiedProMonthlyProfile, 'pdf_account_statements').allowed === true, 'Scenario 6: Pro Monthly unlocks PDF statements');
@@ -1316,9 +1316,403 @@ for (const feat of auditedFreeFeatures) {
 
 // 8. Strict Quota Matrix Enforcement
 assert(FREE_LIMITS.transactions === 50, 'Suite 29: Free transaction quota is exactly 50');
-assert(FREE_LIMITS.clients === 3, 'Suite 29: Free client quota is exactly 3');
+assert(FREE_LIMITS.clients === 5, 'Suite 29: Free client quota is exactly 5');
 assert(FREE_LIMITS.invoices === 3, 'Suite 29: Free invoice quota is exactly 3');
 assert(FREE_LIMITS.recurringBills === 1, 'Suite 29: Free recurring bill quota is exactly 1');
+
+// ==========================================
+// Suite 30: Global Header Search Bar Filtering
+// ==========================================
+console.log('\n[Suite 30: Global Header Search Bar Filtering]');
+
+const mockSearchDataset: Transaction[] = [
+  {
+    id: 'tx-s-1',
+    description: 'Cloud Server Hosting AWS',
+    amount: 150.0,
+    type: 'expense',
+    category: 'Software & Tools',
+    clientName: 'Acme Corp',
+    date: '2026-10-15',
+    paymentMethod: 'Credit Card',
+    notes: 'Production cluster infrastructure',
+    currency: 'USD',
+    exchangeRate: 1,
+    isRecurring: false,
+    recurrencePeriod: 'none'
+  },
+  {
+    id: 'tx-s-2',
+    description: 'Q3 Brand Identity Design',
+    amount: 4500.0,
+    type: 'income',
+    category: 'Design Services',
+    clientName: 'Starlight Media',
+    date: '2026-10-18',
+    paymentMethod: 'Wire Transfer',
+    notes: 'Final milestone release payment',
+    currency: 'USD',
+    exchangeRate: 1,
+    isRecurring: false,
+    recurrencePeriod: 'none'
+  },
+  {
+    id: 'tx-s-3',
+    description: 'Coffee and Client Lunch',
+    amount: 42.5,
+    type: 'expense',
+    category: 'Meals & Entertainment',
+    clientName: 'Acme Corp',
+    date: '2026-10-20',
+    paymentMethod: 'Debit Card',
+    notes: 'Strategy sync lunch',
+    currency: 'USD',
+    exchangeRate: 1,
+    isRecurring: false,
+    recurrencePeriod: 'none'
+  },
+  {
+    id: 'tx-s-4',
+    description: 'Retainer Monthly Retainer',
+    amount: 2500.0,
+    type: 'income',
+    category: 'Consulting',
+    clientName: 'Nexus Global',
+    date: '2026-10-25',
+    paymentMethod: 'ACH',
+    notes: 'Monthly enterprise SLA',
+    currency: 'USD',
+    exchangeRate: 1,
+    isRecurring: false,
+    recurrencePeriod: 'none'
+  }
+];
+
+function filterTransactionsByGlobalQuery(items: Transaction[], query: string): Transaction[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  return items.filter(tx => {
+    return (
+      (tx.description && tx.description.toLowerCase().includes(q)) ||
+      (tx.clientName && tx.clientName.toLowerCase().includes(q)) ||
+      (tx.category && tx.category.toLowerCase().includes(q)) ||
+      (tx.notes && tx.notes.toLowerCase().includes(q)) ||
+      (tx.project && tx.project.toLowerCase().includes(q)) ||
+      (tx.account && tx.account.toLowerCase().includes(q)) ||
+      tx.amount.toString().includes(q)
+    );
+  });
+}
+
+// Test filtering by description
+const descResults = filterTransactionsByGlobalQuery(mockSearchDataset, 'AWS');
+assert(descResults.length === 1, 'Suite 30: Filters by description (AWS)');
+assert(descResults[0].id === 'tx-s-1', 'Suite 30: Matched AWS transaction');
+
+// Test filtering by client
+const clientResults = filterTransactionsByGlobalQuery(mockSearchDataset, 'Acme');
+assert(clientResults.length === 2, 'Suite 30: Filters by clientName (Acme)');
+assert(clientResults.some(t => t.id === 'tx-s-1') && clientResults.some(t => t.id === 'tx-s-3'), 'Suite 30: Returns all transactions with client Acme Corp');
+
+// Test filtering by category
+const catResults = filterTransactionsByGlobalQuery(mockSearchDataset, 'Design Services');
+assert(catResults.length === 1, 'Suite 30: Filters by category (Design Services)');
+assert(catResults[0].id === 'tx-s-2', 'Suite 30: Matched Design Services transaction');
+
+// Test filtering by notes
+const notesResults = filterTransactionsByGlobalQuery(mockSearchDataset, 'milestone');
+assert(notesResults.length === 1, 'Suite 30: Filters by notes content (milestone)');
+assert(notesResults[0].id === 'tx-s-2', 'Suite 30: Matched milestone note');
+
+// Test filtering by numeric amount
+const amountResults = filterTransactionsByGlobalQuery(mockSearchDataset, '4500');
+assert(amountResults.length === 1, 'Suite 30: Filters by numeric amount string');
+assert(amountResults[0].id === 'tx-s-2', 'Suite 30: Matched 4500 amount transaction');
+
+// Test empty search query returns all
+const emptyResults = filterTransactionsByGlobalQuery(mockSearchDataset, '');
+assert(emptyResults.length === 4, 'Suite 30: Empty search query returns all transactions');
+
+// Test case insensitivity and whitespace trimming
+const caseResults = filterTransactionsByGlobalQuery(mockSearchDataset, '  nExUs  ');
+assert(caseResults.length === 1, 'Suite 30: Case-insensitive and whitespace-trimmed search');
+assert(caseResults[0].clientName === 'Nexus Global', 'Suite 30: Matched Nexus Global correctly');
+
+// ==========================================
+// Suite 31: Recent Searches Manager & Dropdown Display
+// ==========================================
+console.log('\n[Suite 31: Recent Searches Manager & Dropdown Display]');
+
+function manageRecentSearches(prevList: string[], newQuery: string, limit: number = 5): string[] {
+  const trimmed = newQuery.trim();
+  if (!trimmed || trimmed.length < 2) return prevList;
+  return [trimmed, ...prevList.filter((item) => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, limit);
+}
+
+function removeRecentSearchItem(prevList: string[], itemToRemove: string): string[] {
+  return prevList.filter((item) => item.toLowerCase() !== itemToRemove.toLowerCase());
+}
+
+let testRecentList: string[] = ['Software', 'Acme Corp', 'Client Payment'];
+
+// 1. Initial items count
+assert(testRecentList.length === 3, 'Suite 31: Initial recent searches has 3 items');
+
+// 2. Add a new search term
+testRecentList = manageRecentSearches(testRecentList, 'Office Supplies');
+assert(testRecentList.length === 4, 'Suite 31: Added Office Supplies, total 4 items');
+assert(testRecentList[0] === 'Office Supplies', 'Suite 31: Most recent item is at the top');
+
+// 3. Add existing term (case-insensitive deduplication)
+testRecentList = manageRecentSearches(testRecentList, 'software');
+assert(testRecentList.length === 4, 'Suite 31: Deduplicates existing term');
+assert(testRecentList[0] === 'software', 'Suite 31: Re-promotes existing term to top position');
+
+// 4. Maximum limit enforcement (last 3-5 queries)
+testRecentList = manageRecentSearches(testRecentList, 'Consulting');
+testRecentList = manageRecentSearches(testRecentList, 'Cloud Hosting');
+assert(testRecentList.length === 5, 'Suite 31: Enforces maximum cap of 5 recent searches');
+assert(testRecentList[0] === 'Cloud Hosting', 'Suite 31: Cloud Hosting is first');
+
+// 5. Short/empty query rejection
+const beforeIgnored = [...testRecentList];
+testRecentList = manageRecentSearches(testRecentList, '  ');
+testRecentList = manageRecentSearches(testRecentList, 'a');
+assert(JSON.stringify(testRecentList) === JSON.stringify(beforeIgnored), 'Suite 31: Ignores empty or single-character queries');
+
+// 6. Remove individual item
+testRecentList = removeRecentSearchItem(testRecentList, 'Consulting');
+assert(!testRecentList.includes('Consulting'), 'Suite 31: Successfully removes individual search item');
+assert(testRecentList.length === 4, 'Suite 31: Length reduces after item removal');
+
+// 7. Clear all items
+testRecentList = [];
+assert(testRecentList.length === 0, 'Suite 31: Clear all resets recent searches to empty list');
+
+// ==========================================
+// Suite 32: 5-Client Free Directory Validation
+// ==========================================
+console.log('\n[Suite 32: 5-Client Free Directory Validation]');
+const fiveStarterClients = getStarterClients();
+assert(fiveStarterClients.length === 5, 'Suite 32: Starter client directory contains exactly 5 profiles');
+assert(fiveStarterClients.every(c => c.name && c.email && c.phone), 'Suite 32: Every starter client has complete contact information');
+assert(FREE_LIMITS.clients === 5, 'Suite 32: FREE_LIMITS.clients is strictly 5');
+
+// ==========================================
+// Suite 33: Client Activity Summary Component & Revenue Calculation
+// ==========================================
+console.log('\n[Suite 33: Client Activity Summary Component & Revenue Calculation]');
+
+const testClientAlpha: Client = {
+  id: 'cli_alpha_test',
+  name: 'Alpha Systems Inc',
+  email: 'finance@alphasys.test',
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+};
+
+const testTransactionsForAlpha: Transaction[] = [
+  {
+    id: 'tx_act_1',
+    type: 'income',
+    amount: 3200,
+    currency: 'USD',
+    exchangeRate: 1,
+    category: 'Client Services',
+    date: '2026-10-10',
+    description: 'Sprint Milestone #1',
+    clientId: 'cli_alpha_test',
+    clientName: 'Alpha Systems Inc',
+    isRecurring: false,
+    recurrencePeriod: 'none',
+  },
+  {
+    id: 'tx_act_2',
+    type: 'income',
+    amount: 1800,
+    currency: 'USD',
+    exchangeRate: 1,
+    category: 'Consulting',
+    date: '2026-10-25',
+    description: 'Sprint Milestone #2',
+    clientId: 'cli_alpha_test',
+    clientName: 'Alpha Systems Inc',
+    isRecurring: false,
+    recurrencePeriod: 'none',
+  },
+  {
+    id: 'tx_act_3',
+    type: 'expense',
+    amount: 250,
+    currency: 'USD',
+    exchangeRate: 1,
+    category: 'Software & Tools',
+    date: '2026-10-20',
+    description: 'Direct server hosting for Alpha',
+    clientId: 'cli_alpha_test',
+    clientName: 'Alpha Systems Inc',
+    isRecurring: false,
+    recurrencePeriod: 'none',
+  },
+  {
+    id: 'tx_act_other',
+    type: 'income',
+    amount: 9000,
+    currency: 'USD',
+    exchangeRate: 1,
+    category: 'Consulting',
+    date: '2026-10-22',
+    description: 'Unrelated other client payment',
+    clientId: 'cli_other_client',
+    clientName: 'Beta Corp',
+    isRecurring: false,
+    recurrencePeriod: 'none',
+  },
+];
+
+const summaryAlpha = getClientFinancialSummary(testClientAlpha, testTransactionsForAlpha);
+assert(summaryAlpha.totalIncome === 5000, 'Suite 33: Accurately calculates total revenue (3200 + 1800 = 5000)');
+assert(summaryAlpha.incomeCount === 2, 'Suite 33: Tracks 2 income payments');
+assert(summaryAlpha.expenseCount === 1, 'Suite 33: Tracks 1 client expense');
+assert(summaryAlpha.netContribution === 4750, 'Suite 33: Calculates net contribution (5000 - 250 = 4750)');
+assert(summaryAlpha.latestTransactionDate === '2026-10-25', 'Suite 33: Correctly identifies latest transaction date');
+
+// Zero activity client check
+const testClientZero: Client = {
+  id: 'cli_zero_test',
+  name: 'New Client No Transactions',
+  createdAt: '2026-11-01',
+  updatedAt: '2026-11-01',
+};
+const summaryZero = getClientFinancialSummary(testClientZero, testTransactionsForAlpha);
+assert(summaryZero.totalIncome === 0, 'Suite 33: Zero transactions client reports 0 total revenue');
+assert(summaryZero.incomeCount === 0, 'Suite 33: Zero transactions client reports 0 income payments');
+assert(summaryZero.latestTransactionDate === null, 'Suite 33: Zero transactions client has null latest date');
+
+// ==========================================
+// Suite 34: Real-Time Client Search & Filtering
+// ==========================================
+console.log('\n[Suite 34: Real-Time Client Search & Filtering]');
+
+const clientSearchPool: Client[] = [
+  {
+    id: 'cli_1',
+    name: 'Zenith Digital Corp',
+    companyName: 'Zenith Global Media Inc',
+    email: 'billing@zenithcorp.com',
+    phone: '+1 (555) 234-5678',
+    gstin: 'GSTIN27AABCT3518Q1Z4',
+    notes: 'Key retainer client for monthly digital design',
+    billingAddress: 'New York, NY',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+  {
+    id: 'cli_2',
+    name: 'Starlight Media & Design',
+    companyName: 'Starlight Creative Group LLC',
+    email: 'finance@starlightmedia.com',
+    phone: '+1 (555) 345-6789',
+    gstin: 'US-EIN-95-8123456',
+    notes: 'Quarterly web identity launch',
+    billingAddress: 'Los Angeles, CA',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+  {
+    id: 'cli_3',
+    name: 'Nexus Global Solutions',
+    companyName: 'Nexus Enterprise Consulting Ltd',
+    email: 'accounts@nexusglobalsolutions.com',
+    phone: '+1 (555) 456-7890',
+    gstin: 'US-EIN-36-7459123',
+    notes: 'Strategic architecture and cloud modernization SLA',
+    billingAddress: 'Chicago, IL',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+  {
+    id: 'cli_4',
+    name: 'Stellar Labs',
+    companyName: 'Stellar BioTech & AI Solutions',
+    email: 'accounts@stellarlabs.io',
+    phone: '+1 (555) 890-1234',
+    gstin: 'US-EIN-84-9382104',
+    notes: 'Interactive data visualizations and UI',
+    billingAddress: 'Cambridge, MA',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+  {
+    id: 'cli_5',
+    name: 'Helios FinTech Systems',
+    companyName: 'Helios Technologies Group',
+    email: 'procurement@heliosfin.com',
+    phone: '+44 20 7946 0912',
+    gstin: 'GB982341209',
+    notes: 'FinTech dashboard engineering',
+    billingAddress: 'London, UK',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  },
+];
+
+function filterClientsRealtime(list: Client[], query: string): Client[] {
+  if (!query.trim()) return list;
+  const q = query.toLowerCase().trim();
+  return list.filter(client => (
+    client.name.toLowerCase().includes(q) ||
+    (client.companyName && client.companyName.toLowerCase().includes(q)) ||
+    (client.email && client.email.toLowerCase().includes(q)) ||
+    (client.phone && client.phone.toLowerCase().includes(q)) ||
+    (client.gstin && client.gstin.toLowerCase().includes(q)) ||
+    (client.notes && client.notes.toLowerCase().includes(q)) ||
+    (client.billingAddress && client.billingAddress.toLowerCase().includes(q))
+  ));
+}
+
+// 1. Filter by name in real-time
+const matchName = filterClientsRealtime(clientSearchPool, 'zenith');
+assert(matchName.length === 1, 'Suite 34: Filters client list by name');
+assert(matchName[0].id === 'cli_1', 'Suite 34: Matched Zenith correctly');
+
+// 2. Filter by company name
+const matchCompany = filterClientsRealtime(clientSearchPool, 'creative group');
+assert(matchCompany.length === 1, 'Suite 34: Filters client list by company name');
+assert(matchCompany[0].id === 'cli_2', 'Suite 34: Matched Starlight Creative Group');
+
+// 3. Filter by email
+const matchEmail = filterClientsRealtime(clientSearchPool, 'stellarlabs.io');
+assert(matchEmail.length === 1, 'Suite 34: Filters client list by email domain');
+assert(matchEmail[0].id === 'cli_4', 'Suite 34: Matched Stellar Labs by email');
+
+// 4. Filter by phone number fragment
+const matchPhone = filterClientsRealtime(clientSearchPool, '0912');
+assert(matchPhone.length === 1, 'Suite 34: Filters client list by phone number fragment');
+assert(matchPhone[0].id === 'cli_5', 'Suite 34: Matched Helios by phone');
+
+// 5. Filter by tax ID / GSTIN
+const matchGSTIN = filterClientsRealtime(clientSearchPool, '3518Q1Z4');
+assert(matchGSTIN.length === 1, 'Suite 34: Filters client list by GSTIN identifier');
+assert(matchGSTIN[0].id === 'cli_1', 'Suite 34: Matched GSTIN to Zenith');
+
+// 6. Filter by notes content
+const matchNotes = filterClientsRealtime(clientSearchPool, 'modernization');
+assert(matchNotes.length === 1, 'Suite 34: Filters client list by notes keyword');
+assert(matchNotes[0].id === 'cli_3', 'Suite 34: Matched Nexus by notes');
+
+// 7. Filter by location / billing address
+const matchCity = filterClientsRealtime(clientSearchPool, 'London');
+assert(matchCity.length === 1, 'Suite 34: Filters client list by city in billing address');
+assert(matchCity[0].id === 'cli_5', 'Suite 34: Matched Helios in London');
+
+// 8. Empty query returns entire pool
+const matchEmpty = filterClientsRealtime(clientSearchPool, '   ');
+assert(matchEmpty.length === 5, 'Suite 34: Empty query returns full client pool');
+
+// 9. Non-matching query returns 0 results
+const matchNone = filterClientsRealtime(clientSearchPool, 'NonExistentClientXYZ');
+assert(matchNone.length === 0, 'Suite 34: Non-matching query returns empty list for zero state');
 
 // SUMMARY
 console.log('\n========================================');

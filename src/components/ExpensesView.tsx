@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -30,6 +30,7 @@ interface ExpensesViewProps {
   categories: Category[];
   profile: UserProfile;
   clients?: Client[];
+  globalSearchQuery?: string;
   onAddTransaction: (tx: Omit<Transaction, 'id'>) => void;
   onEditTransaction: (id: string, updated: Partial<Transaction>) => void;
   onDeleteTransaction: (id: string) => void;
@@ -44,6 +45,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   categories,
   profile,
   clients = [],
+  globalSearchQuery,
   onAddTransaction,
   onEditTransaction,
   onDeleteTransaction,
@@ -53,7 +55,15 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   onUpgradeTrigger,
 }) => {
   // Filter states
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(globalSearchQuery || '');
+
+  // Synchronize when global search query changes in the header
+  useEffect(() => {
+    if (globalSearchQuery !== undefined) {
+      setSearchTerm(globalSearchQuery);
+    }
+  }, [globalSearchQuery]);
+
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedProject, setSelectedProject] = useState('All');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('All');

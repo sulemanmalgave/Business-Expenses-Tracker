@@ -1,12 +1,17 @@
 // Service Worker for Business Expense Tracker – Small Business PWA
-const CACHE_NAME = 'bet-cache-v2';
+const CACHE_NAME = 'bet-cache-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/favicon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-512-maskable.png',
   '/icon.svg',
   '/icon-192.svg',
   '/icon-512.svg',
-  '/manifest.webmanifest'
+  '/manifest.webmanifest',
+  '/manifest.json'
 ];
 
 self.addEventListener('install', (event) => {

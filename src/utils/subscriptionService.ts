@@ -33,7 +33,7 @@ export const PLAN_METADATA: Record<SubscriptionPlanCode, PlanMetadata> = {
     features: [
       'Income & expense tracking (up to 50 transactions)',
       'Basic dashboard & financial summaries',
-      'Client management (up to 3 clients)',
+      'Client management (up to 5 clients)',
       'Standard invoices (up to 3 invoices)',
       '1 recurring obligation to test',
       'Standard transaction categories',
@@ -188,7 +188,7 @@ export type CanonicalPlanCode = 'FREE' | 'PRO_MONTHLY' | 'PRO_YEARLY';
  */
 export const FREE_LIMITS = {
   transactions: 50,
-  clients: 3,
+  clients: 5,
   invoices: 3,
   recurringBills: 1,
   businesses: 1,
